@@ -64,3 +64,7 @@ The project root is now organized as follows:
 - /results: Contains the first raw scan data from the calibration phase.
 
 - README.md: Updated with the theoretical framework and research architecture.
+
+
+## Result
+- [Synk Code Report](https://htmlpreview.github.io/?https://raw.githubusercontent.com/mirsahib/Project-VibeCoding-Security/refs/heads/master/results/analysis/owasp_calibration_report.html)
