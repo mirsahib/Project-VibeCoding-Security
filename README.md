@@ -1,19 +1,22 @@
 # Research Project: Security AI Agent of "Vibe Coding"
 
 ## 🎯 Executive Summary
-[cite_start]This research treats **"Vibe Coding"** as a dynamic system where vague natural language intent is transformed into software by an LLM[cite: 4]. [cite_start]We view security vulnerabilities not as mere bugs, but as **emergent properties** of a system lacking a feedback loop[cite: 5]. [cite_start]This project aims to benchmark existing insecure defaults and proposes an **Agentic Self-Correction Loop** (Autonomous Vulnerability Remediation - AVR) to mitigate these risks[cite: 6, 50].
+This research treats **"Vibe Coding"** as a dynamic system where vague natural language intent is transformed into software by an LLM[cite: 4]. We view security vulnerabilities not as mere bugs, but as **emergent properties** of a system lacking a feedback loop[cite: 5]. This project aims to benchmark existing insecure defaults and proposes an **Agentic Self-Correction Loop** (Autonomous Vulnerability Remediation - AVR) to mitigate these risks[cite: 6, 50].
 
 ---
 
 ## 🏗️ Theoretical Framework: "The Secure Vibe" System
-[cite_start]Using systems thinking, the research architecture is defined as follows[cite: 8]:
+Using systems thinking, the research architecture is defined as follows[cite: 8]:
 
-* [cite_start]**The Input Layer (Intent):** 100 "Vibe Prompts" (natural language descriptions) across 5 different LLMs[cite: 9].
-* [cite_start]**The Transformation Layer (Processing):** Full-stack code generation using FastAPI, Python, and Supabase[cite: 10, 45].
-* [cite_start]**The Measurement Layer (Sensor):** Formal industry benchmarks (SAST tools like Snyk/SonarQube) mapped to the **OWASP Top 10 (2025)**[cite: 11, 47].
-* [cite_start]**The Correction Layer (Proposed Solution):** An autonomous feedback loop where scan results are fed back to the AI for self-healing[cite: 12].
+* **The Input Layer (Intent):** 100 "Vibe Prompts" (natural language descriptions) across 5 different LLMs[cite: 9].
+* **The Transformation Layer (Processing):** Full-stack code generation using FastAPI, Python, and Supabase[cite: 10, 45].
+* **The Measurement Layer (Sensor):** Formal industry benchmarks (SAST tools like Snyk/SonarQube) mapped to the **OWASP Top 10 (2025)**[cite: 11, 47].
+* **The Correction Layer (Proposed Solution):** An autonomous feedback loop where scan results are fed back to the AI for self-healing[cite: 12].
 
 ---
+
+## Weekly Progress Report
+- Week 1: Infrastructure & Calibration 
 
 ## 📂 Project Folder Structure
 
