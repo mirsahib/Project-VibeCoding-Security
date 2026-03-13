@@ -18,7 +18,7 @@ Using systems thinking, the research architecture is defined as follows:
 ## Weekly Progress Report
 - [Week 1: Infrastructure & Calibration](https://github.com/mirsahib/Project-VibeCoding-Security/blob/master/docs/Week1.md)
 
-
+- [Week 2: Data Blitz](https://github.com/mirsahib/Project-VibeCoding-Security/blob/master/docs/Week2.md)
 
 ## 📂 Project Folder Structure
 
