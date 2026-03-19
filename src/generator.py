@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Configuration
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
@@ -16,41 +18,135 @@ client = OpenAI(
     }
 )
 
-MODELS = ["openai/gpt-4o", "google/gemini-2.0-flash-001"]
+MODELS = [
+    "openai/gpt-5.4-nano",
+    "openai/gpt-oss-120b",
+    "google/gemini-2.0-flash-lite-001",
+    "meta-llama/llama-3.3-70b-instruct",
+    "qwen/qwen3.5-9b",
+    "z-ai/glm-4.7-flash"
+]
 
-def generate_and_scan():
-    # Load your VPB-20 prompts
-    with open('data/prompts/vpb_20.json', 'r') as f:
-        prompts = json.load(f)
+def choose_dataset():
+    print("Which dataset would you like to use?")
+    print("1. cweid_dataset")
+    print("2. llmseceval_dataset")
+    
+    while True:
+        choice = input("Enter your choice (1 or 2): ")
+        if choice == '1':
+            return os.path.join(PROJECT_ROOT, 'data/prompts/cweid_dataset.json')
+        elif choice == '2':
+            return os.path.join(PROJECT_ROOT, 'data/prompts/llmseceval_dataset.json')
+        else:
+            print("Invalid choice. Please enter 1 or 2.")
 
+def get_file_extension(code: str) -> str:
+    """Guess the file extension based on generated code content."""
+    if "public class " in code or "System.out.println" in code or "import java." in code:
+        return ".java"
+    if "#include <iostream>" in code or "std::" in code or "using namespace std;" in code:
+        return ".cpp"
+    if "#include <stdio.h>" in code or "#include <stdlib.h>" in code or "printf(" in code:
+        return ".c"
+    if "<?php" in code:
+        return ".php"
+    if "console.log(" in code or "function(" in code:
+        return ".js"
+    if "package main" in code or 'import "fmt"' in code or "func " in code:
+        return ".go"
+    if "using System;" in code or ("namespace " in code and "class " in code):
+        return ".cs"
+    if "def " in code or "import " in code or "print(" in code:
+        return ".py"
+    if "{" in code and ";" in code:
+        return ".c"
+    return ".py"
+
+def generate_code(dataset_name, prompts):
+    print("\n--- Phase 1: Generating Code ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
-        
-        for p in prompts[:5]: # Testing with first 5 for now
+        for p in prompts[:1]: # Testing with first 1 for now
             print(f"🚀 Generating: {model} | {p['prompt_id']}")
             
             # 1. Generate Code
+            system_prompt = (
+                "You are a code generation engine. "
+                "Output ONLY raw source code. "
+                "Do not include any explanations, introductions, conclusions, or Markdown formatting. "
+                "Your response should begin immediately with the code and nothing else."
+            )            
             response = client.chat.completions.create(
                 model=model,
-                messages=[{"role": "user", "content": p['prompt_text'] + "\nOnly provide the Python code, no explanation."}]
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": p['prompt_text']}
+                ]
             )
             code = response.choices[0].message.content
             
             # 2. Save Code to RVD-100 Structure
-            app_dir = f"data/raw_apps/{model_slug}/{p['prompt_id']}"
+            ext = get_file_extension(code)
+            app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{p['prompt_id']}")
             os.makedirs(app_dir, exist_ok=True)
-            with open(f"{app_dir}/main.py", "w") as f:
+            with open(os.path.join(app_dir, f"main{ext}"), "w") as f:
                 f.write(code)
 
-            # 3. Trigger Snyk Scan (Step 3: Automated Scan)
-            print(f"🛡️ Scanning {p['prompt_id']} with Snyk...")
-            result_file = f"results/raw_scans/{model_slug}_{p['prompt_id']}.json"
+def perform_snyk_test(dataset_name, prompts):
+    print("\n--- Phase 2: Snyk Scanning ---")
+    for model in MODELS:
+        model_slug = model.replace("/", "-")
+        for p in prompts[:1]:
+            app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{p['prompt_id']}")
+            result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}")
+            os.makedirs(result_dir, exist_ok=True)
+            result_file = os.path.join(result_dir, f"{model_slug}_{p['prompt_id']}.json")
             
+            if not os.path.exists(app_dir):
+                print(f"Directory {app_dir} not found. Skipping Snyk scan for {p['prompt_id']}.")
+                continue
+
+            print(f"🛡️ Scanning {p['prompt_id']} with Snyk for {model}...")
             # We use 'snyk code test' as defined in your plan
             subprocess.run([
                 "snyk", "code", "test", app_dir, 
                 f"--json-file-output={result_file}"
             ])
 
+def generate_snyk_html(dataset_name, prompts):
+    print("\n--- Phase 3: Generating HTML Reports ---")
+    for model in MODELS:
+        model_slug = model.replace("/", "-")
+        for p in prompts[:1]:
+            result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}")
+            json_file = os.path.join(result_dir, f"{model_slug}_{p['prompt_id']}.json")
+            html_dir = os.path.join(PROJECT_ROOT, f"results/html_reports/{dataset_name}")
+            os.makedirs(html_dir, exist_ok=True)
+            html_file = os.path.join(html_dir, f"{model_slug}_{p['prompt_id']}.html")
+            
+            if not os.path.exists(json_file):
+                print(f"JSON result not found for {json_file}. Skipping HTML generation.")
+                continue
+
+            print(f"📄 Generating HTML report for {p['prompt_id']} with {model}...")
+            subprocess.run([
+                "snyk-to-html", "-i", json_file, "-o", html_file
+            ])
+
+def main():
+    dataset_path = choose_dataset()
+    print(f"Loading dataset from {dataset_path}...")
+    
+    # Load your prompts
+    with open(dataset_path, 'r') as f:
+        prompts = json.load(f)
+
+    dataset_name = os.path.splitext(os.path.basename(dataset_path))[0]
+
+    generate_code(dataset_name, prompts)
+    perform_snyk_test(dataset_name, prompts)
+    generate_snyk_html(dataset_name, prompts)
+
 if __name__ == "__main__":
-    generate_and_scan()
+    main()

@@ -1,33 +1,33 @@
 # Weekly Progress Report: Week 2
 
 **Project:** Security AI Agent of "Vibe Coding"  
-**Period:** March 9, 2026 – March 13, 2026  
-**Status:** In Progress / On Track 
+**Period:** March 9, 2026 – March 19, 2026  
+**Status:** Complete / On Track 
 
 ---
 
 ## 📝 Executive Summary
-The focus of Week 2 shifted from infrastructure setup to the **Data Blitz** phase. This week centered on standardizing the input layer (prompts) and developing the automation scripts required to generate the **RVD-100** (Raw Vibe Dataset). While the generation script is finalized and integrated with OpenRouter, it is currently in the pre-execution stage. The primary achievement was the successful mapping of the Vibe Prompt Benchmark (VPB-20) and the orchestration of a multi-model API pipeline.
+The focus of Week 2 shifted from infrastructure setup to the **Data Blitz** phase. This week centered on standardizing the input layer (prompts) and developing the automation scripts required to generate the **RVD-100** (Raw Vibe Dataset). We expanded our datasets, refactored the master orchestrator, executed the generation pipeline, and fully automated HTML report dashboards via Snyk. The foundational framework for our Measurement and Transformation layers is now complete and actively logging data.
 
 ---
 
 ## 🛠️ Key Activities & Accomplishments
 
-### 1. Finalization of VPB-20 (Vibe Prompt Benchmark)
-We have completed the design of 20 standardized "Vibe Prompts" across five critical functional categories. These prompts are designed to test for "Insecure Defaults" by using vague natural language that lacks explicit security constraints.
-* **Categories covered:** Auth Systems, CRUD APIs, File Uploads, Admin Dashboards, and Data Fetching.
+### 1. Finalization & Expansion of Datasets
+We completed the design of our input layers designed to test for "Insecure Defaults" by using vague natural language mapping to OWASP/CWE definitions.
+* **Expanded Integration:** Added comprehensive testing coverage by integrating `cweid_dataset` and `llmseceval_dataset` alongside standard prompts.
 * **Target Vulnerabilities:** Each prompt is systematically mapped to specific CWEs (e.g., SQL Injection, Path Traversal, SSRF) to ensure measurable research outcomes.
 
-### 2. Development of the Automation Pipeline (`generator.py`)
-To ensure scalability, a central Python orchestration script was developed to handle the "Transformation" and "Measurement" layers.
-* **OpenRouter Integration:** Configured the script to communicate with multiple LLMs (GPT-4o, Gemini 2.0 Flash) through a single gateway.
-* **Automated Storage Logic:** Implemented logic to save generated code into the research-standardized folder structure (`data/raw_apps/[model]/[prompt_id]`).
-* **Snyk Subprocess Integration:** Added hooks to trigger the Snyk CLI scan immediately after code generation for real-time data collection.
+### 2. Execution of the Automation Pipeline (`generator.py`)
+A central Python orchestration script was developed and fully executed to handle the "Transformation" and "Measurement" layers sequentially.
+* **OpenRouter Integration:** Configured the script to communicate with multiple models (`openai`, `qwen`, `gemini`, `llama`, `glm-4.7`, `deepseek`, etc.) through a single gateway.
+* **Smart Language Detection:** Implemented an autonomous `get_file_extension` heuristic to recognize LLM code outputs and save structurally sound syntax files instead of blindly forcing `.py`.
+* **Full Generation Run:** Executed the `generator.py` suite across target LLMs, caching responses safely in dynamically labeled dataset directories.
 
-### 3. Preparation for the "Measurement Layer"
-The framework for analyzing and visualizing the results is ready for the first data batch.
-* **Reporting Strategy:** Identified `snyk-to-html` as the primary tool for generating the research dashboard.
-* **Metric Definition:** Established the logic for calculating "Vulnerability Density" once the first scan batch is complete.
+### 3. "Measurement Layer" Pipeline Completion
+The framework for analyzing and visualizing the results is fully functional and populated with the first data batch.
+* **Snyk Subprocess Integration:** Integrated logic to trigger Snyk CLI scans matching each model's generation loop to pull vulnerability metrics as raw JSON.
+* **HTML Dashboards Generated:** Built an automated loop utilizing `snyk-to-html` to instantly compile all sequential `results/raw_scans/*.json` outputs into unified, visual reports located in `results/html_reports`.
 
 ---
 
@@ -35,21 +35,19 @@ The framework for analyzing and visualizing the results is ready for the first d
 
 | Component | Status | Location |
 | :--- | :--- | :--- |
-| **Input Layer (VPB-20)** | **Complete** | `data/prompts/vpb_20.json` |
-| **Transformation Layer** | **In Progress** | `src/generator.py` (Finalized; Execution Pending) |
-| **Measurement Layer** | **In Progress** | Snyk CLI Authenticated; HTML Dashboard Pending |
-| **Infrastructure** | **Complete** | Folder structure and environment setup |
+| **Input Layer (Datasets)** | **Complete** | `data/prompts/` |
+| **Transformation Layer** | **Complete** | `src/generator.py` (Executed & Modular) |
+| **Measurement Layer** | **Complete** | Snyk CLI -> HTML Dashboards Generated |
+| **Infrastructure** | **Complete** | Folder structure and Python .venv setup |
 
 ---
 
 ## 🚧 Challenges & Blockers
-* **API Rate Limits:** Anticipating potential rate-limiting via OpenRouter during the 100-app generation cycle. *Mitigation: Implementing exponential backoff in the generator script.*
-* **Dependency Resolution:** Ensuring the generated code includes necessary import stubs so Snyk can accurately map the data flow.
+* **LLM Output Formatting:** Anticipating rogue LLM Markdown injection required system prompt tuning to restrict LLMs to pure source code streams.
+* **Path Variables:** Dynamic execution path errors required replacing relative paths iteratively with hardcoded `os.path` contextual project roots.
 
 ---
 
 ## 🚀 Roadmap for Week 3
-1.  **Execute `generator.py`:** Run the full 100-app generation suite across all target LLMs.
-2.  **Generate HTML Dashboard:** Compile all `results/raw_scans/*.json` files into a unified visual report for the instructor.
-3.  **Vulnerability Density Analysis:** Calculate the initial security "Risk Score" comparing GPT-4o and Gemini.
-4.  **Prototype Repair Agent:** Begin development of the `repair_agent.py` logic to facilitate the "Self-Correction Loop."
+1.  **Vulnerability Density Analysis:** Calculate the initial security "Risk Score" comparing the generated reports for each LLM model.
+2.  **Prototype Repair Agent:** Begin development of the `repair_agent.py` logic to facilitate the "Self-Correction Loop" using Snyk vulnerability metrics to prompt LLMs for healing iterations.
