@@ -12,6 +12,37 @@ The primary goal of Day 1 was to establish the research environment, define the 
 
 ---
 
+## ⚙️ System Installation & Setup
+
+To replicate the research measurement environment, the following security tools must be installed:
+
+### 1. Snyk CLI Installation
+The Snyk CLI is the core engine used for the **Measurement Layer**. It performs Static Analysis (SAST) on the generated code.
+*   **Prerequisite:** Node.js and npm installed.
+*   **Command:** 
+    ```bash
+    npm install -g snyk
+    ```
+*   **Authentication:**
+    ```bash
+    snyk auth
+    ```
+*   **Reference:** [Snyk CLI Documentation](https://docs.snyk.io/developer-tools/snyk-cli)
+
+### 2. Snyk-to-HTML Installation
+This utility transforms raw JSON scan data into professional, human-readable HTML reports.
+*   **Command:**
+    ```bash
+    npm install -g snyk-to-html
+    ```
+*   **Usage:**
+    ```bash
+    snyk code test --json | snyk-to-html -o results.html
+    ```
+*   **Reference:** [snyk-to-html Documentation](https://docs.snyk.io/developer-tools/snyk-cli/scan-and-maintain-projects-using-the-cli/cli-tools/snyk-to-html)
+
+---
+
 ## 🛠️ Key Achievements
 
 ### 1. Research Infrastructure Deployment
