@@ -11,6 +11,29 @@ The focus of Week 2 shifted from infrastructure setup to the **Data Blitz** phas
 
 ---
 
+## 🏗️ System Architecture Pipeline
+```mermaid
+flowchart TD
+    A[Dataset JSON - cweid / llmseceval] -->|Parsed Prompts| B[generate_code]
+
+    subgraph TL[Transformation Layer - generator.py]
+        B --> C{LLM APIs}
+        C -->|OpenAI / Gemini / etc| D[Detect File Extension]
+        D -->|Raw Source Code| E[data/raw_apps/]
+    end
+
+    subgraph ML[Measurement Layer - Snyk CLI]
+        E -->|Read Apps| F[perform_snyk_test]
+        F -->|Snyk Code Test| G[results/raw_scans/ JSON]
+        G -->|Read JSON| H[generate_snyk_html]
+        H -->|snyk-to-html| I[results/html_reports/ HTML]
+    end
+
+    I --> J[Final Vulnerability Dashboards]
+```
+
+---
+
 ## 🛠️ Key Activities & Accomplishments
 
 ### 1. Finalization & Expansion of Datasets
