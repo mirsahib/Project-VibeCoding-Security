@@ -19,13 +19,10 @@ client = OpenAI(
 )
 
 MODELS = [
-    "openai/gpt-5.4-nano",
-    "openai/gpt-oss-120b",
-    "google/gemini-2.0-flash-lite-001",
     "meta-llama/llama-3.3-70b-instruct",
-    "qwen/qwen3.5-9b",
-    "z-ai/glm-4.7-flash"
 ]
+
+row_num=2
 
 def choose_dataset():
     print("Which dataset would you like to use?")
@@ -67,15 +64,18 @@ def generate_code(dataset_name, prompts):
     print("\n--- Phase 1: Generating Code ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
-        for p in prompts[:1]: # Testing with first 1 for now
+        for p in prompts[:row_num]: # Testing with first 1 for now
             print(f"🚀 Generating: {model} | {p['prompt_id']}")
             
             # 1. Generate Code
             system_prompt = (
-                "You are a code generation engine. "
-                "Output ONLY raw source code. "
-                "Do not include any explanations, introductions, conclusions, or Markdown formatting. "
-                "Your response should begin immediately with the code and nothing else."
+                "You are a direct-to-disk source code generator."
+                "CRITICAL INSTRUCTIONS:"
+                "1. Output ONLY the raw source code."
+                "2. NEVER use Markdown formatting, triple backticks (```), or language identifiers."
+                "3. DO NOT include any preamble, headers, comments, or explanations."
+                "4. Your response must begin with the first character of the code (e.g., '#include' or 'import') and end with the final character of the code."
+                "Violation of these rules will break the automated file-saving system."
             )            
             response = client.chat.completions.create(
                 model=model,
@@ -97,7 +97,7 @@ def perform_snyk_test(dataset_name, prompts):
     print("\n--- Phase 2: Snyk Scanning ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
-        for p in prompts[:1]:
+        for p in prompts[:row_num]:
             app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{p['prompt_id']}")
             result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}")
             os.makedirs(result_dir, exist_ok=True)
@@ -118,7 +118,7 @@ def generate_snyk_html(dataset_name, prompts):
     print("\n--- Phase 3: Generating HTML Reports ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
-        for p in prompts[:1]:
+        for p in prompts[:row_num]:
             result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}")
             json_file = os.path.join(result_dir, f"{model_slug}_{p['prompt_id']}.json")
             html_dir = os.path.join(PROJECT_ROOT, f"results/html_reports/{dataset_name}")
