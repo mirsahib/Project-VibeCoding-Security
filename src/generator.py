@@ -63,14 +63,43 @@ def get_file_extension(code: str) -> str:
         return ".c"
     return ".py"
 
+def has_snyk_issues(dataset_name, model_slug, prompt_id):
+    """Check if the generated JSON report for a given prompt and model contains any vulnerabilities."""
+    result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}")
+    json_file = os.path.join(result_dir, f"{model_slug}_{prompt_id}.json")
+    if not os.path.exists(json_file):
+        return False
+    try:
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+            runs = data.get("runs", [])
+            # Snyk output format usually has results in runs[0].results
+            if runs and len(runs[0].get("results", [])) > 0:
+                return True
+    except Exception as e:
+        print(f"Error parsing {json_file}: {e}")
+    return False
+
 def generate_test_cases(dataset_name, prompts):
-    print("\n--- Phase 0: Generating Test Cases ---")
+    print("\n--- Phase 4: Generating Test Cases ---")
     test_model = TEST_MODELS[0]
     for p in prompts[:row_num]: # Testing with first few for now
         prompt_id = p.get('prompt_id', 'Unknown-ID')
+        
+        # Determine which models have vulnerabilities for this prompt
+        vulnerable_models = []
+        for target_model in MODELS:
+            target_model_slug = target_model.replace("/", "-")
+            if has_snyk_issues(dataset_name, target_model_slug, prompt_id):
+                vulnerable_models.append(target_model_slug)
+                
+        if not vulnerable_models:
+            print(f"⏭️  Skipping Test Generation (No Snyk issues found): {prompt_id}")
+            continue
+
         target_cwe = p.get('target_vulnerability', 'Unknown-CWE')
         prompt_text = p.get('prompt_text', '')
-        print(f"🛠️ Generating Test Case: {test_model} | {p['prompt_id']}")
+        print(f"🛠️ Generating Test Case: {test_model} | {prompt_id}")
         
         system_prompt = f"""You are a Python security test generation tool. 
             Your goal is to write a Python script to test a pre-existing C binary named './out_binary'.
@@ -98,9 +127,9 @@ def generate_test_cases(dataset_name, prompts):
         if code.endswith("```"): code = code[:-3]
         code = code.strip()
         
-        for target_model in MODELS:
-            target_model_slug = target_model.replace("/", "-")
-            app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{target_model_slug}/{p['prompt_id']}")
+        # Only write the test script to the directories of vulnerable models
+        for target_model_slug in vulnerable_models:
+            app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{target_model_slug}/{prompt_id}")
             os.makedirs(app_dir, exist_ok=True)
             with open(os.path.join(app_dir, "test_main.py"), "w") as f:
                 f.write(code)
@@ -139,34 +168,40 @@ def generate_code(dataset_name, prompts):
                 f.write(code)
 
 def run_test_cases(dataset_name, prompts):
-    print("\n--- Phase 1.5: Running Test Cases ---")
+    print("\n--- Phase 5: Running Test Cases ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
         for p in prompts[:row_num]:
-            app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{p['prompt_id']}")
+            prompt_id = p.get('prompt_id', 'Unknown-ID')
+            
+            # Skip if there were no issues identified
+            if not has_snyk_issues(dataset_name, model_slug, prompt_id):
+                continue
+                
+            app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{prompt_id}")
             
             main_c = os.path.join(app_dir, "main.c")
             test_py = os.path.join(app_dir, "test_main.py")
             out_binary = os.path.join(app_dir, "out_binary")
             
             if not os.path.exists(main_c) or not os.path.exists(test_py):
-                print(f"Skipping test for {p['prompt_id']} (missing files)")
+                print(f"Skipping test for {prompt_id} (missing files)")
                 continue
                 
-            print(f"🧪 Testing {p['prompt_id']}...")
+            print(f"🧪 Testing {prompt_id}...")
             # Compile Code
             compile_res = subprocess.run(["gcc", main_c, "-o", out_binary], capture_output=True, text=True)
             if compile_res.returncode != 0:
-                print(f"❌ Compilation failed for {p['prompt_id']}:\n{compile_res.stderr}")
+                print(f"❌ Compilation failed for {prompt_id}:\n{compile_res.stderr}")
                 continue
                 
             # Run test using Python
             # We set cwd to app_dir so that the test script can easily invoke './out_binary'
             test_res = subprocess.run(["python3", test_py], cwd=app_dir, capture_output=True, text=True)
             if test_res.returncode == 0:
-                print(f"✅ Test passed for {p['prompt_id']}")
+                print(f"✅ Test passed for {prompt_id}")
             else:
-                print(f"❌ Test failed for {p['prompt_id']}:\n{test_res.stdout}\n{test_res.stderr}")
+                print(f"❌ Test failed for {prompt_id}:\n{test_res.stdout}\n{test_res.stderr}")
 
 def perform_snyk_test(dataset_name, prompts):
     print("\n--- Phase 2: Snyk Scanning ---")
@@ -200,6 +235,8 @@ def generate_snyk_html(dataset_name, prompts):
             os.makedirs(html_dir, exist_ok=True)
             html_file = os.path.join(html_dir, f"{model_slug}_{p['prompt_id']}.html")
             
+            app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{p['prompt_id']}")
+            
             if not os.path.exists(json_file):
                 print(f"JSON result not found for {json_file}. Skipping HTML generation.")
                 continue
@@ -207,7 +244,7 @@ def generate_snyk_html(dataset_name, prompts):
             print(f"📄 Generating HTML report for {p['prompt_id']} with {model}...")
             subprocess.run([
                 "snyk-to-html", "-i", json_file, "-o", html_file
-            ])
+            ], cwd=app_dir)
 
 def main():
     dataset_path = choose_dataset()
@@ -219,11 +256,14 @@ def main():
 
     dataset_name = os.path.splitext(os.path.basename(dataset_path))[0]
 
-    generate_test_cases(dataset_name, prompts)
+    # Reordered Pipeline Execution
     generate_code(dataset_name, prompts)
-    # run_test_cases(dataset_name, prompts) # Disabling test execution in current pipeline
     perform_snyk_test(dataset_name, prompts)
     generate_snyk_html(dataset_name, prompts)
+    
+    # Process downstream logic only for flawed codes
+    generate_test_cases(dataset_name, prompts)
+    run_test_cases(dataset_name, prompts) 
 
 if __name__ == "__main__":
     main()
