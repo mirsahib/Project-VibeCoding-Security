@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import subprocess
 import shutil
@@ -28,7 +29,22 @@ MODELS = [
     "qwen/qwen3.5-9b"
 ]
 
-row_num=2
+def choose_prompt_count(total):
+    while True:
+        try:
+            choice = input(f"\nFound {total} prompts in the dataset. How many prompts would you like to process? (Enter a number or 'all'): ").strip().lower()
+            if choice == 'all':
+                return total
+            num = int(choice)
+            if num <= 0:
+                print("Please enter a number greater than 0.")
+                continue
+            if num > total:
+                print(f"❌ Error: Requested {num} prompts, but only {total} are available in the dataset. Stopping process.")
+                sys.exit(1)
+            return num
+        except ValueError:
+            print("Invalid input. Please enter a valid number or 'all'.")
 
 def choose_dataset():
     print("Which dataset would you like to use?")
@@ -119,7 +135,7 @@ def extract_snyk_feedback(dataset_name, model_slug, prompt_id, pass_name=""):
 def generate_test_cases(dataset_name, prompts):
     print("\n--- Phase 4: Generating Test Cases ---")
     test_model = TEST_MODELS[0]
-    for p in prompts[:row_num]: # Testing with first few for now
+    for p in prompts: # Testing with first few for now
         prompt_id = p.get('prompt_id', 'Unknown-ID')
         
         # Determine which models have vulnerabilities for this prompt
@@ -174,7 +190,7 @@ def generate_code(dataset_name, prompts):
     print("\n--- Phase 1: Generating Code ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
-        for p in prompts[:row_num]: # Testing with first 1 for now
+        for p in prompts: # Testing with first 1 for now
             print(f"🚀 Generating: {model} | {p['prompt_id']}")
             
             # 1. Generate Code
@@ -207,7 +223,7 @@ def run_test_cases(dataset_name, prompts):
     print("\n--- Phase 5: Running Test Cases ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
-        for p in prompts[:row_num]:
+        for p in prompts:
             prompt_id = p.get('prompt_id', 'Unknown-ID')
             
             # Skip if there were no issues identified
@@ -260,7 +276,7 @@ def perform_snyk_test(dataset_name, prompts):
     print("\n--- Phase 2: Snyk Scanning ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
-        for p in prompts[:row_num]:
+        for p in prompts:
             app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{p['prompt_id']}")
             result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}")
             os.makedirs(result_dir, exist_ok=True)
@@ -281,7 +297,7 @@ def generate_snyk_html(dataset_name, prompts):
     print("\n--- Phase 3: Generating HTML Reports ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
-        for p in prompts[:row_num]:
+        for p in prompts:
             result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}")
             json_file = os.path.join(result_dir, f"{model_slug}_{p['prompt_id']}.json")
             html_dir = os.path.join(PROJECT_ROOT, f"results/html_reports/{dataset_name}")
@@ -303,7 +319,7 @@ def execute_healing_iterations(dataset_name, prompts):
     print("\n--- Phase 6: Interactive Multi-Pass Healing Loop ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
-        for p in prompts[:row_num]:
+        for p in prompts:
             prompt_id = p.get('prompt_id', 'Unknown-ID')
             
             # Start loop ONLY if pass1 has issues
@@ -463,6 +479,10 @@ def main():
         prompts = json.load(f)
 
     dataset_name = os.path.splitext(os.path.basename(dataset_path))[0]
+    total_prompts = len(prompts)
+    
+    num_prompts = choose_prompt_count(total_prompts)
+    prompts = prompts[:num_prompts]
 
     # Reordered Pipeline Execution
     generate_code(dataset_name, prompts)
