@@ -24,6 +24,8 @@ TEST_MODELS = [
 
 MODELS = [
     "meta-llama/llama-3.3-70b-instruct",
+    "z-ai/glm-4.7-flash",
+    "qwen/qwen3.5-9b"
 ]
 
 row_num=2
@@ -81,9 +83,11 @@ def has_snyk_issues(dataset_name, model_slug, prompt_id):
         print(f"Error parsing {json_file}: {e}")
     return False
 
-def extract_snyk_feedback(dataset_name, model_slug, prompt_id):
+def extract_snyk_feedback(dataset_name, model_slug, prompt_id, pass_name=""):
     """Parses JSON to natural language strings containing vulnerabilities."""
     result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}")
+    if pass_name:
+        result_dir = os.path.join(result_dir, pass_name)
     json_file = os.path.join(result_dir, f"{model_slug}_{prompt_id}.json")
     if not os.path.exists(json_file):
         return "No Snyk JSON report found."
@@ -295,115 +299,160 @@ def generate_snyk_html(dataset_name, prompts):
                 "snyk-to-html", "-i", json_file, "-o", html_file
             ], cwd=app_dir)
 
-def self_heal_code(dataset_name, prompts):
-    print("\n--- Phase 6: Self-Healing Loop ---")
+def execute_healing_iterations(dataset_name, prompts):
+    print("\n--- Phase 6: Interactive Multi-Pass Healing Loop ---")
     for model in MODELS:
         model_slug = model.replace("/", "-")
         for p in prompts[:row_num]:
             prompt_id = p.get('prompt_id', 'Unknown-ID')
             
+            # Start loop ONLY if pass1 has issues
             if not has_snyk_issues(dataset_name, model_slug, prompt_id):
                 continue
                 
-            print(f"🩹 Attempting self-heal for {prompt_id} on {model_slug}...")
-            app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{prompt_id}")
+            print(f"\n🩹 Starting interactive heal loop for {prompt_id} on {model_slug}...")
+            base_app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{prompt_id}")
+            current_pass = 2
             
-            main_c_path = os.path.join(app_dir, "main.c")
-            if not os.path.exists(main_c_path):
-                print(f"Skipping heal for {prompt_id} - main.c missing")
-                continue
+            while True:
+                print(f"\n--- [Pass {current_pass}] Generating and Verifying ---")
                 
-            with open(main_c_path, 'r') as f:
-                original_code = f.read()
+                prev_pass_name = f"pass{current_pass-1}" if current_pass > 2 else ""
+                prev_dir = os.path.join(base_app_dir, prev_pass_name) if prev_pass_name else base_app_dir
                 
-            verdict_path = os.path.join(app_dir, "test_verdict.json")
-            test_info = "No test verdict available."
-            if os.path.exists(verdict_path):
-                with open(verdict_path, 'r') as f:
-                    verdict_data = json.load(f)
-                    if not verdict_data.get("compilation_success"):
-                        test_info = f"Compilation Failed:\\n{verdict_data.get('compilation_stderr')}"
-                    elif not verdict_data.get("test_success"):
-                        test_info = f"Test Failed:\\nStdout: {verdict_data.get('test_stdout')}\\nStderr: {verdict_data.get('test_stderr')}"
-                    else:
-                        test_info = "Test cases passed successfully prior to heal."
-                        
-            snyk_issues = extract_snyk_feedback(dataset_name, model_slug, prompt_id)
-            
-            system_prompt = (
-                "You are an expert Security Fixer. "
-                "Your objective is to fix vulnerabilities and bugs in the provided source code based on the original user prompt, Snyk security scan results, and test case verdicts.\\n"
-                "CRITICAL INSTRUCTIONS:\\n"
-                "1. Output ONLY the raw repaired source code.\\n"
-                "2. NEVER use Markdown formatting, triple backticks (```), or language identifiers.\\n"
-                "3. DO NOT include any preamble, headers, comments or explanations about the fix.\\n"
-                "4. Fix ALL Snyk vulnerabilities and Test Failures described."
-            )
-            
-            user_prompt = f"### Original Request:\\n{p.get('prompt_text', '')}\\n\\n### Generated Code with Vulnerabilities/Bugs:\\n{original_code}\\n\\n### Security Scan Results (Snyk):\\n{snyk_issues}\\n\\n### Validation Test Results:\\n{test_info}\\n"
+                main_c_path = os.path.join(prev_dir, "main.c")
+                if not os.path.exists(main_c_path):
+                    print(f"Skipping heal for {prompt_id} - {main_c_path} missing")
+                    break
+                    
+                with open(main_c_path, 'r') as f:
+                    original_code = f.read()
+                    
+                verdict_path = os.path.join(prev_dir, "test_verdict.json")
+                test_info = "No test verdict available."
+                if os.path.exists(verdict_path):
+                    with open(verdict_path, 'r') as f:
+                        verdict_data = json.load(f)
+                        if not verdict_data.get("compilation_success"):
+                            test_info = f"Compilation Failed:\\n{verdict_data.get('compilation_stderr')}"
+                        elif not verdict_data.get("test_success"):
+                            test_info = f"Test Failed:\\nStdout: {verdict_data.get('test_stdout')}\\nStderr: {verdict_data.get('test_stderr')}"
+                        else:
+                            test_info = "Test cases passed successfully."
+                
+                snyk_issues = extract_snyk_feedback(dataset_name, model_slug, prompt_id, prev_pass_name)
+                
+                system_prompt = (
+                    "You are an expert Security Fixer. "
+                    "Your objective is to fix vulnerabilities and bugs in the provided source code based on from the original user prompt, Snyk security scan results, and test case verdicts.\\n"
+                    "CRITICAL INSTRUCTIONS:\\n"
+                    "1. Output ONLY the raw repaired source code.\\n"
+                    "2. NEVER use Markdown formatting, triple backticks (```), or language identifiers.\\n"
+                    "3. DO NOT include any preamble, headers, comments or explanations about the fix.\\n"
+                    "4. Fix ALL Snyk vulnerabilities and Test Failures described."
+                )
+                
+                user_prompt = f"### Original Request:\\n{p.get('prompt_text', '')}\\n\\n### Generated Code with Vulnerabilities/Bugs:\\n{original_code}\\n\\n### Security Scan Results (Snyk):\\n{snyk_issues}\\n\\n### Validation Test Results:\\n{test_info}\\n"
 
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-            )
-            healed_code = response.choices[0].message.content
-            
-            if healed_code.startswith("```c"): healed_code = healed_code[4:]
-            elif healed_code.startswith("```"): healed_code = healed_code[3:]
-            if healed_code.endswith("```"): healed_code = healed_code[:-3]
-            healed_code = healed_code.strip()
-            
-            healed_dir = os.path.join(app_dir, "healed")
-            os.makedirs(healed_dir, exist_ok=True)
-            with open(os.path.join(healed_dir, "main.c"), "w") as f:
-                f.write(healed_code)
-
-def verify_healing(dataset_name, prompts):
-    print("\n--- Phase 7: Verifying Healed Code ---")
-    for model in MODELS:
-        model_slug = model.replace("/", "-")
-        for p in prompts[:row_num]:
-            prompt_id = p.get('prompt_id', 'Unknown-ID')
-            app_dir = os.path.join(PROJECT_ROOT, f"data/raw_apps/{dataset_name}/{model_slug}/{prompt_id}")
-            healed_dir = os.path.join(app_dir, "healed")
-            
-            if not os.path.exists(healed_dir):
-                continue
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+                healed_code = response.choices[0].message.content
                 
-            print(f"🔍 Verifying healed code for {prompt_id} on {model_slug}...")
-            
-            result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}/healed")
-            os.makedirs(result_dir, exist_ok=True)
-            json_file = os.path.join(result_dir, f"{model_slug}_{prompt_id}.json")
-            
-            subprocess.run([
-                "snyk", "code", "test", healed_dir, 
-                f"--json-file-output={json_file}"
-            ])
-            
-            healed_binary = os.path.join(healed_dir, "out_binary")
-            main_c = os.path.join(healed_dir, "main.c")
-            test_py = os.path.join(app_dir, "test_main.py")
-            
-            if not os.path.exists(test_py):
-                continue
+                if healed_code.startswith("```c"): healed_code = healed_code[4:]
+                elif healed_code.startswith("```"): healed_code = healed_code[3:]
+                if healed_code.endswith("```"): healed_code = healed_code[:-3]
+                healed_code = healed_code.strip()
                 
-            # Bring test into healed_dir
-            test_py_healed = os.path.join(healed_dir, "test_main.py")
-            shutil.copy(test_py, test_py_healed)
-            
-            compile_res = subprocess.run(["gcc", main_c, "-o", healed_binary], capture_output=True, text=True)
-            if compile_res.returncode != 0:
-                print(f"❌ Healed compilation failed for {prompt_id}:\\n{compile_res.stderr}")
-            else:
-                test_res = subprocess.run(["python3", test_py_healed], cwd=healed_dir, capture_output=True, text=True)
-                if test_res.returncode == 0:
-                    print(f"✅ Healed Test passed for {prompt_id}")
+                current_pass_name = f"pass{current_pass}"
+                current_dir = os.path.join(base_app_dir, current_pass_name)
+                os.makedirs(current_dir, exist_ok=True)
+                
+                with open(os.path.join(current_dir, "main.c"), "w") as f:
+                    f.write(healed_code)
+                    
+                print(f"🔍 Verifying {current_pass_name} for {prompt_id} on {model_slug}...")
+                result_dir = os.path.join(PROJECT_ROOT, f"results/raw_scans/{dataset_name}/{current_pass_name}")
+                os.makedirs(result_dir, exist_ok=True)
+                json_file = os.path.join(result_dir, f"{model_slug}_{prompt_id}.json")
+                
+                subprocess.run([
+                    "snyk", "code", "test", current_dir, 
+                    f"--json-file-output={json_file}"
+                ])
+                
+                out_binary = os.path.join(current_dir, "out_binary")
+                main_c = os.path.join(current_dir, "main.c")
+                
+                test_py_base = os.path.join(base_app_dir, "test_main.py")
+                test_py_current = os.path.join(current_dir, "test_main.py")
+                if os.path.exists(test_py_base):
+                    shutil.copy(test_py_base, test_py_current)
+                
+                test_verdict = {
+                    "compilation_success": False,
+                    "compilation_stderr": "",
+                    "test_success": False,
+                    "test_stdout": "",
+                    "test_stderr": ""
+                }
+                
+                if not os.path.exists(test_py_current):
+                    print(f"❌ Verification stopped - missing test case file.")
                 else:
-                    print(f"❌ Healed Test failed for {prompt_id}:\\n{test_res.stdout}\\n{test_res.stderr}")
+                    compile_res = subprocess.run(["gcc", main_c, "-o", out_binary], capture_output=True, text=True)
+                    test_verdict["compilation_success"] = compile_res.returncode == 0
+                    test_verdict["compilation_stderr"] = compile_res.stderr
+                    
+                    if compile_res.returncode != 0:
+                        print(f"❌ {current_pass_name} compilation failed:\\n{compile_res.stderr}")
+                    else:
+                        test_res = subprocess.run(["python3", test_py_current], cwd=current_dir, capture_output=True, text=True)
+                        test_verdict["test_success"] = test_res.returncode == 0
+                        test_verdict["test_stdout"] = test_res.stdout
+                        test_verdict["test_stderr"] = test_res.stderr
+                        
+                        if test_verdict["test_success"]:
+                            print(f"✅ {current_pass_name} Test passed!")
+                        else:
+                            print(f"❌ {current_pass_name} Test failed:\\n{test_res.stdout}\\n{test_res.stderr}")
+                            
+                with open(os.path.join(current_dir, "test_verdict.json"), "w") as f:
+                    json.dump(test_verdict, f, indent=2)
+
+                has_test_failures = not (test_verdict["compilation_success"] and test_verdict["test_success"])
+                
+                snyk_failed = False
+                if os.path.exists(json_file):
+                    try:
+                        with open(json_file, 'r') as f:
+                            data = json.load(f)
+                            runs = data.get("runs", [])
+                            if runs and len(runs[0].get("results", [])) > 0:
+                                snyk_failed = True
+                    except Exception:
+                        pass
+
+                if snyk_failed:
+                    print(f"❌ {current_pass_name} Snyk analysis found vulnerabilities.")
+                else:
+                    print(f"✅ {current_pass_name} Snyk analysis clean.")
+
+                if not has_test_failures and not snyk_failed:
+                    print(f"🎉 Success! The code for {prompt_id} is secure and functional after {current_pass} passes.")
+                    break
+                else:
+                    user_input = input(f"⚠️ Verification failed for pass {current_pass}. Generate pass {current_pass + 1}? (y/n): ")
+                    if user_input.strip().lower() == 'y':
+                        current_pass += 1
+                        continue
+                    else:
+                        print(f"Stopped healing process for {prompt_id} at pass {current_pass}.")
+                        break
 
 def main():
     dataset_path = choose_dataset()
@@ -424,9 +473,8 @@ def main():
     generate_test_cases(dataset_name, prompts)
     run_test_cases(dataset_name, prompts) 
     
-    # Phase 6 & 7: Self-Healing 
-    self_heal_code(dataset_name, prompts)
-    verify_healing(dataset_name, prompts)
+    # Phase 6 & 7: Interactive Self-Healing Loop
+    execute_healing_iterations(dataset_name, prompts)
 
 if __name__ == "__main__":
     main()
