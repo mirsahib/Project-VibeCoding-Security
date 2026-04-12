@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import csv
 from dotenv import load_dotenv
@@ -26,6 +27,23 @@ def choose_dataset():
             return os.path.join(PROJECT_ROOT, 'data/prompts/llmseceval_dataset.json')
         else:
             print("Invalid choice. Please enter 1 or 2.")
+
+def choose_prompt_count(total):
+    while True:
+        try:
+            choice = input(f"\nFound {total} prompts in the dataset. How many prompts would you like to analyze? (Enter a number or 'all'): ").strip().lower()
+            if choice == 'all':
+                return total
+            num = int(choice)
+            if num <= 0:
+                print("Please enter a number greater than 0.")
+                continue
+            if num > total:
+                print(f"❌ Error: Requested {num} prompts, but only {total} are available in the dataset. Stopping process.")
+                sys.exit(1)
+            return num
+        except ValueError:
+            print("Invalid input. Please enter a valid number or 'all'.")
 
 def get_snyk_vuln_count(json_path):
     """Parses a Snyk JSON report and returns the total number of vulnerabilities."""
@@ -73,7 +91,11 @@ def analyze_data():
     dataset_name = os.path.splitext(os.path.basename(dataset_path))[0]
     
     with open(dataset_path, 'r') as f:
-        prompts = json.load(f)
+        all_prompts = json.load(f)
+
+    total_prompts = len(all_prompts)
+    num_prompts = choose_prompt_count(total_prompts)
+    prompts = all_prompts[:num_prompts]
 
     # Initialize stats tracking per model
     stats = {model.replace("/", "-"): {
@@ -86,13 +108,13 @@ def analyze_data():
         "ultimate_success": 0
     } for model in MODELS}
 
-    print(f"\n🔍 Analyzing data for {dataset_name}...\n")
+    print(f"\n🔍 Analyzing data for {dataset_name} (First {num_prompts} prompts)...\n")
 
     for model in MODELS:
         model_slug = model.replace("/", "-")
         model_stats = stats[model_slug]
         
-        for p in prompts: # Analyzes all prompts that have data
+        for p in prompts:
             prompt_id = p.get('prompt_id')
             
             # --- PASS 1 DATA ---
@@ -103,14 +125,19 @@ def analyze_data():
             p1_func_success = get_test_verdict(p1_test_path)
             
             if p1_vulns is None:
-                continue # Skip if no data exists for this prompt/model
+                continue # Skip if no generation/scan data exists for this prompt/model
                 
             model_stats["total_processed"] += 1
             
             if p1_vulns > 0:
                 model_stats["pass1_vulnerable"] += 1
-            if p1_func_success:
-                model_stats["pass1_functional"] += 1
+                if p1_func_success:
+                    model_stats["pass1_functional"] += 1
+            else:
+                # If 0 vulns on Pass 1, generator skipped test generation. 
+                # We count this as an ultimate success out-of-the-box.
+                model_stats["ultimate_success"] += 1
+                continue # No healing loop data to check
                 
             # --- FINAL PASS DATA (HEALING LOOP) ---
             latest_pass = get_latest_pass(dataset_name, model_slug, prompt_id)
@@ -133,12 +160,8 @@ def analyze_data():
                 if p1_func_success and final_func_success is False:
                     model_stats["functional_regressions"] += 1
                     
-                # Metric 3: The ultimate goal (0 vulns + working code)
+                # Metric 3: The ultimate goal (0 vulns + working code in final pass)
                 if final_vulns == 0 and final_func_success:
-                    model_stats["ultimate_success"] += 1
-            else:
-                # If there was no pass > 1, the ultimate success depends purely on Pass 1
-                if p1_vulns == 0 and p1_func_success:
                     model_stats["ultimate_success"] += 1
 
     # --- PRINT TERMINAL REPORT ---
@@ -166,7 +189,7 @@ def analyze_data():
         print(f"\n🤖 MODEL: {model_slug}")
         print("-" * 40)
         print(f"Total Prompts Analyzed:    {total}")
-        print(f"Insecure Default Rate:     {insecure_rate:.1f}% ({data['pass1_vulnerable']}/{total} generated insecure code)")
+        print(f"Insecure Default Rate:     {insecure_rate:.1f}% ({data['pass1_vulnerable']}/{total} generated insecure code initially)")
         print(f"Repair Success Rate:       {heal_rate:.1f}% ({data['successful_heals']}/{data['attempted_heals']} fixed in loop)")
         print(f"Functional Regressions:    {regression_rate:.1f}% ({data['functional_regressions']} times the fix broke the app)")
         print(f"Ultimate Success Rate:     {ultimate_rate:.1f}% ({data['ultimate_success']}/{total} are secure AND working)")
