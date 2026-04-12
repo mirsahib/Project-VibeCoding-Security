@@ -608,7 +608,7 @@
         </a>
         <div class="test-meta">
           <p class="timestamp">April 12th 2026, 5:37:58 am (UTC+00:00)</p>
-          <div class="filepath" title="/home/mirsahib/Desktop/2026/Project-VibeCoding-Security/data/raw_apps/cweid_dataset/z-ai-glm-4.7-flash/CSV-CWE-14-001">Source: /home/mirsahib/Desktop/2026/Project-VibeCoding-Security/data/raw_apps/cweid_dataset/z-ai-glm-4.7-flash/CSV-CWE-14-001</div>
+          <div class="filepath" title="/home/mirsahib/Desktop/2026/Project-VibeCoding-Security/data/raw_apps/cweid_dataset/z-ai-glm-4.7-flash/CSV-CWE-121-004">Source: /home/mirsahib/Desktop/2026/Project-VibeCoding-Security/data/raw_apps/cweid_dataset/z-ai-glm-4.7-flash/CSV-CWE-121-004</div>
         </div>
       </div>
     </header>
@@ -624,11 +624,11 @@
               
             </div>
             <div class="meta-count">
-              <span class="severity-icon severity-icon--medium"></span> <span><strong>0</strong> medium issues</span>
+              <span class="severity-icon severity-icon--medium"></span> <span><strong>1</strong> medium issues</span>
               
             </div>
             <div class="meta-count">
-              <span class="severity-icon severity-icon--low"></span> <span><strong>1</strong> low issues</span>
+              <span class="severity-icon severity-icon--low"></span> <span><strong>0</strong> low issues</span>
               
             </div>
           </div>
@@ -641,14 +641,14 @@
         </div>
       </div>
         <div class="cards--vuln filter--patch filter--ignore">
-          <div class="card card--vuln disclosure--not-new severity--low"  data-snyk-test="low">
+          <div class="card card--vuln disclosure--not-new severity--medium"  data-snyk-test="medium">
               <input type="radio" name="tab-view-0" id="tab-dataflow-0" value="dataflow" class="card__tab__radio" checked>
               <input type="radio" name="tab-view-0" id="tab-fix-0" value="fix" class="card__tab__radio" >
           
               <header class="card__header">
                   <div class="card__header__main">
-                      <div class="severity-icon severity-icon--low"></div>
-                      <h2 class="card__title">Clear Text Logging</h2>
+                      <div class="severity-icon severity-icon--medium"></div>
+                      <h2 class="card__title">Potential buffer overflow from usage of unsafe function</h2>
                       <div class="card__actions">
                           <label for="tab-dataflow-0" class="card__action">Data Flow</label>
                           <label for="tab-fix-0" class="card__action">Fix Analysis</label>
@@ -656,41 +656,31 @@
                   </div>
                   <ul class="card__meta">
                       <li class="card__meta__item">SNYK-CODE</li>
-                      <li class="card__meta__item">CWE-312</li>
-                      <li class="card__meta__item">ClearTextLogging</li>
+                      <li class="card__meta__item">CWE-122</li>
+                      <li class="card__meta__item">UnsafeFunctionStringHandling</li>
                   </ul>
               </header>
               <div class="card__section">
-                  <div class="card__summary severity--low">
-                      <p>Sensitive information password is logged in printf. An attacker with acccess to log data could steal potentially sensitive application or personal information.</p>
-                      <div class="file-location">Found in: <strong>main.c (line : 15)</strong></div>
+                  <div class="card__summary severity--medium">
+                      <p>Using strcpy can lead to buffer overflow vulnerabilities, if arbitrary user input is able to flow into this function without the length of the input being checked. Use the safer alternative strncpy instead.</p>
+                      <div class="file-location">Found in: <strong>main.c (line : 32)</strong></div>
                   </div>
                   <div class="card__panel dataflow">
                       <h2 class="card__panel__heading"><span class="heading-char">⇣</span> Data Flow</h2>
                       <div class="dataflow__filename"> main.c</div>
                       <div class="dataflow__item">
-                          <span class="dataflow__lineno" title="line:column">6:10</span>
-                          <div class="dataflow__code"><span class="dataflow__codeprefix">    char <br /></span><span class="marker">password[</span><span class="dataflow__codesuffix">256];</span></div>
-                          <span class="dataflow__badge" title="Data is 'tainted' if it comes from an insecure source such as a file, the network, or the user. This tainted data is passed to a sensitive sink, as described below.">Source</span>
+                          <span class="dataflow__lineno" title="line:column">32:5</span>
+                          <div class="dataflow__code"><span class="dataflow__codeprefix">    <br /></span><span class="marker">strcpy(</span><span class="dataflow__codesuffix">hostname, host-&gt;h_name);</span></div>
+                          <span class="dataflow__badge" title="Data is 'tainted' if it comes from an insecure source such as a file, the network, or the user. This tainted data is passed to a sensitive sink, as described below.">Source</span><span class="dataflow__badge" title="Sinks are the operations that must receive clean data and that you wouldn't want an attacker to be able to manipulate.">Sink</span>
                           <span class="dataflow__step">0</span>
-                      </div>
-                      
-                      <div class="dataflow__item">
-                          <span class="dataflow__lineno" title="line:column">15:9</span>
-                          <div class="dataflow__code"><span class="dataflow__codeprefix">        <br /></span><span class="marker">printf(</span><span class="dataflow__codesuffix">&quot;Password accepted: %s\n&quot;, password);</span></div>
-                          <span class="dataflow__badge" title="Sinks are the operations that must receive clean data and that you wouldn't want an attacker to be able to manipulate.">Sink</span>
-                          <span class="dataflow__step">1</span>
                       </div>
                   </div>
                   <div class="card__panel fix-analysis">
                       <h2 class="card__panel__heading"><span class="heading-char">✓</span> Fix Analysis</h2>
                       <div class="card__panel__markdown"><h2 id="details">Details</h2>
-          <p>The term cleartext refers to text that can be read without decryption, even if it is encoded in some way, such as base64. When this weakness is present, sensitive information such as login credentials or private information such as employee or customer data is stored in cleartext.</p>
-          <p>If a system has been compromised by an attacker, they can then access this cleartext data and exploit it to gain access, modify or crash the application, or hold the information for ransom.</p>
-          <h2 id="best-practices-for-prevention">Best practices for prevention</h2>
-          <ul>
-          <li>Encrypt data at all times, whether in transit or at rest</li>
-          </ul>
+          <p>A potential buffer overflow issue was identified via use of an insecure function. Use of this function could lead to memory corruption attacks if arbitrary user input (which has not been validated in terms of its length) is allowed to flow into it. It is advisable to use the safer alternative instead, which is less prone to memory corruption issues.</p>
+          <p>A buffer overflow is a type of runtime error that allows a program to write past the end of a buffer or array — hence the name overflow — and corrupt adjacent memory. Like most bugs, a buffer overflow doesn’t manifest at every program execution. Instead, the vulnerability is triggered under certain circumstances, such as unexpected user input.</p>
+          <p>A buffer overflow attack is the exploitation of a buffer overflow vulnerability — typically by a malicious actor who wants to gain access or information, or trigger a crash to deny service to others. Buffer overflows generally result in program crashes, however under certain circumstances, an attacker may be able to trigger remote code execution.</p>
           </div>
                   </div>
               </div>

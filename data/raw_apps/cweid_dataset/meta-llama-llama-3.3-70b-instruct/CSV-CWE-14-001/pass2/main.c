@@ -8,7 +8,7 @@ int main() {
     fgets(password, sizeof(password), stdin);
     password[strcspn(password, "\n")] = 0;
 
-    printf("You entered: %s\n", password);
+    printf("You entered: ********\n");
 
     memset(password, 0, sizeof(password));
 

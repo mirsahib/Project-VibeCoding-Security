@@ -12,8 +12,6 @@ int main() {
             password[len - 1] = '\0';
         }
         
-        printf("Password accepted: %s\n", password);
-        
         memset(password, 0, sizeof(password));
     }
     
