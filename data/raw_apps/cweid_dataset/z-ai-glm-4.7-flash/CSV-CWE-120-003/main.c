@@ -1,20 +1,22 @@
 #include <stdio.h>
-void copy_string(char *dest, const char *src) {
-	while (*src != '\0') {
-		*dest = *src;
-		dest++;
-		src++;
-	}
-	*dest = '\0';
+
+void copy_string(char *source, char *destination) {
+    int i = 0;
+    while (source[i] != '\0') {
+        destination[i] = source[i];
+        i++;
+    }
+    destination[i] = '\0';
 }
+
 int main() {
-	char source[] = "Hello, World!";
-	char destination[100];
+    char source[] = "This is a string to copy.";
+    char destination[100];
 
-	copy_string(destination, source);
+    copy_string(source, destination);
 
-	printf("Original: %s\n", source);
-	printf("Copied:   %s\n", destination);
+    printf("Source: %s\n", source);
+    printf("Destination: %s\n", destination);
 
-	return 0;
+    return 0;
 }

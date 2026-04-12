@@ -1,38 +1,40 @@
 #include <stdio.h>
 #include <string.h>
-#define BUFFER_SIZE 256
+
+#define BUFFER_SIZE 1024
 
 int main() {
-    char input_buffer[BUFFER_SIZE];
-    char processed_buffer[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE];
+    char *ptr;
+    int word_count = 0;
 
-    printf("Enter text to be processed:\n");
+    printf("Enter some text: ");
 
-    // Reading input into the buffer
-    if (fgets(input_buffer, BUFFER_SIZE, stdin) != NULL) {
-        size_t len = strlen(input_buffer);
+    if (fgets(buffer, BUFFER_SIZE, stdin) != NULL) {
+        size_t len = strlen(buffer);
 
-        // Remove trailing newline if present
-        if (len > 0 && input_buffer[len - 1] == '\n') {
-            input_buffer[len - 1] = '\0';
-            len--;
+        if (len > 0 && buffer[len - 1] == '\n') {
+            buffer[len - 1] = '\0';
         }
 
-        // Process buffer: Convert to uppercase
-        size_t i;
-        for (i = 0; i < len; i++) {
-            if (input_buffer[i] >= 'a' && input_buffer[i] <= 'z') {
-                processed_buffer[i] = input_buffer[i] - 32;
-            } else {
-                processed_buffer[i] = input_buffer[i];
+        printf("You entered: %s\n", buffer);
+
+        ptr = buffer;
+        int in_word = 0;
+
+        while (*ptr != '\0') {
+            if (*ptr == ' ' || *ptr == '\t' || *ptr == '\n') {
+                in_word = 0;
+            } else if (in_word == 0) {
+                word_count++;
+                in_word = 1;
             }
+            ptr++;
         }
-        processed_buffer[i] = '\0';
 
-        printf("Original: %s\n", input_buffer);
-        printf("Processed (Upper): %s\n", processed_buffer);
+        printf("Word count: %d\n", word_count);
     } else {
-        printf("Error reading input or empty buffer.\n");
+        printf("Error reading input.\n");
     }
 
     return 0;

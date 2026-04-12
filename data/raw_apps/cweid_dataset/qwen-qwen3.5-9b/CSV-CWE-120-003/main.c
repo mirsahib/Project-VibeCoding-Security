@@ -2,12 +2,9 @@
 #include <string.h>
 
 int main() {
-    char source[100] = "Hello";
-    char destination[100];
-
-    strcpy(destination, source);
-
-    printf("%s\n", destination);
-
+    char src[] = "Source Buffer";
+    char dst[100];
+    strcpy(dst, src);
+    printf("%s\n", dst);
     return 0;
 }

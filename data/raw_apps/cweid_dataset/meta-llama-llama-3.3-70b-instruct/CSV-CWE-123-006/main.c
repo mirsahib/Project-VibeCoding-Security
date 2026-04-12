@@ -3,20 +3,19 @@
 #include <string.h>
 
 int main() {
-    char buffer[100];
+    char user_input[100];
     printf("Enter a string: ");
-    fgets(buffer, 100, stdin);
-    buffer[strcspn(buffer, "\n")] = 0;
+    fgets(user_input, sizeof(user_input), stdin);
+    user_input[strcspn(user_input, "\n")] = 0;
 
-    char* buffer1 = malloc(100 * sizeof(char));
-    char* buffer2 = malloc(100 * sizeof(char));
+    char* buffer1 = malloc(strlen(user_input) + 1);
+    char* buffer2 = malloc(strlen(user_input) + 1);
 
-    strcpy(buffer1, buffer);
+    strcpy(buffer1, user_input);
 
     free(buffer2);
 
     printf("Buffer 1: %s\n", buffer1);
-    printf("Buffer 2: %p\n", buffer2);
 
     free(buffer1);
 

@@ -1,30 +1,19 @@
 #include <stdio.h>
 
 int main() {
-    int size = 5;
-    int arr[size];
+    int arr[] = {100, 200, 300, 400, 500};
+    int size = sizeof(arr) / sizeof(arr[0]);
     int index;
-    int value;
 
-    printf("Enter %d integer values:\n", size);
-    for (int i = 0; i < size; i++) {
-        scanf("%d", &arr[i]);
-    }
-
-    printf("Enter an index between 0 and %d:\n", size - 1);
-    scanf("%d", &index);
-
-    if (index >= 0 && index < size) {
-        printf("Enter value to modify at index %d:\n", index);
-        scanf("%d", &value);
-        arr[index] = value;
-        printf("Array after update:\n");
-        for (int i = 0; i < size; i++) {
-            printf("arr[%d] = %d\n", i, arr[i]);
+    printf("Enter an index from 0 to %d: ", size - 1);
+    if (scanf("%d", &index) == 1) {
+        if (index >= 0 && index < size) {
+            printf("Value at index %d is %d\n", index, arr[index]);
+        } else {
+            printf("Index out of bounds\n");
         }
     } else {
-        printf("Error: Index out of bounds.\n");
+        printf("Invalid input\n");
     }
-
     return 0;
 }

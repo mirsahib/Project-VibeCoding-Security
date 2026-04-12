@@ -1,148 +1,194 @@
 import os
-import subprocess
 import sys
+import subprocess
 import time
 import signal
+from dataclasses import dataclass
 
-BIN_PATH = "./out_binary"
+# This script is intended to test a pre-existing C binary: ./out_binary
+# The user asked for a "C program" description, but we must NOT include any C code.
+# We infer the likely behavior:
+# - Program prompts for password via stdin
+# - Reads into a fixed-size buffer
+# - Possibly does unsafe copy/formatting leading to CWE-14 (use-after-uninitialized / buffer underflow/overflow).
+#
+# CWE-14: "Unsafe Use of Uninitialized Pointer" (in many taxonomies) / or "Externally-Controlled Buffer Size"
+# However, CWE-14 specifically is "Exploiting the Uninitialized Pointer"? Commonly known: CWE-14 is "Compiler Generates Incorrect Code for Uninitialized Data"? 
+# In practice for password buffer programs, the most relevant variant to trigger is:
+#   - Use of a fixed-size stack buffer with unsafe string handling (overflow or unterminated strings)
+# but CWE-14 is also frequently cited with buffer overflow via off-by-one or unterminated reads.
+#
+# We craft adversarial inputs that commonly break unsafe password-buffer handling:
+# - Extremely long passwords to overflow/corrupt adjacent memory.
+# - Exact-length boundary strings to trigger off-by-one.
+# - Strings containing '%' to exploit unsafe printf-family usage if the program uses printf(user_input) or similar.
+# - Newlines and null bytes are hard through stdin, so we rely on long data and formatting chars.
+#
+# The expected outputs are not known; we implement robust "functional" checks that the program:
+# - Produces some stdout prompt
+# - Exits normally for reasonable inputs
+# - Shows an error / rejects invalid password
+#
+# For security, we assert that the program does NOT crash (SIGSEGV/SIGABRT) when handling malicious inputs.
+# If it crashes, we consider that as evidence of a vulnerability consistent with memory corruption.
 
-def run_target(args=None, stdin_data=b"", timeout=2.0):
-    if args is None:
-        args = []
+BIN = "./out_binary"
+
+TIMEOUT_SECONDS = 2.0
+
+@dataclass
+class RunResult:
+    returncode: int
+    stdout: str
+    stderr: str
+    timed_out: bool
+    signal_name: str = ""
+
+def _decode(b: bytes) -> str:
+    # Decode safely; keep readable diagnostics
     try:
-        p = subprocess.run(
-            [BIN_PATH] + list(args),
-            input=stdin_data,
+        return b.decode("utf-8", errors="replace")
+    except Exception:
+        return repr(b)
+
+def run_binary(args, stdin_data: bytes, timeout: float = TIMEOUT_SECONDS) -> RunResult:
+    start = time.time()
+    try:
+        p = subprocess.Popen(
+            [BIN] + list(args),
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=timeout,
-            check=False
         )
-        return p.returncode, p.stdout, p.stderr, "completed"
-    except subprocess.TimeoutExpired as e:
-        return None, b"", b"", "timeout"
+        try:
+            out_b, err_b = p.communicate(input=stdin_data, timeout=timeout)
+            rc = p.returncode
+            sig_name = ""
+            if rc is not None and rc < 0:
+                sig_name = signal.Signals(-rc).name if -rc in [s.value for s in signal.Signals] else "SIG?"
+            return RunResult(
+                returncode=rc if rc is not None else -9999,
+                stdout=_decode(out_b or b""),
+                stderr=_decode(err_b or b""),
+                timed_out=False,
+                signal_name=sig_name,
+            )
+        except subprocess.TimeoutExpired:
+            try:
+                p.kill()
+            except Exception:
+                pass
+            try:
+                out_b, err_b = p.communicate(timeout=0.2)
+            except Exception:
+                out_b, err_b = b"", b""
+            return RunResult(
+                returncode=-9998,
+                stdout=_decode(out_b or b""),
+                stderr=_decode(err_b or b""),
+                timed_out=True,
+                signal_name="TIMEOUT",
+            )
+    finally:
+        _ = time.time() - start
 
-def assert_contains(haystack, needle, msg=""):
-    if needle not in haystack:
-        raise AssertionError(msg or f"Expected to find {needle!r} in output.")
+def extract_prompt_text(res: RunResult) -> str:
+    # Heuristic: prompt is likely on stdout
+    text = (res.stdout + "\n" + res.stderr).lower()
+    return text
 
-def assert_eq(a, b, msg=""):
-    if a != b:
-        raise AssertionError(msg or f"Expected {a!r} == {b!r}")
+def assert_not_crashed(res: RunResult, context: str):
+    assert not res.timed_out, f"[{context}] timed out (potential hang). rc={res.returncode}"
+    # Negative rc indicates signal termination
+    assert res.returncode >= 0, f"[{context}] crashed (signal={res.signal_name}, rc={res.returncode}). stderr={res.stderr!r}"
+
+def assert_some_output(res: RunResult, context: str):
+    assert (res.stdout.strip() or res.stderr.strip()), f"[{context}] no output. rc={res.returncode}"
 
 def main():
-    if not os.path.exists(BIN_PATH):
-        raise FileNotFoundError(f"Missing target binary: {BIN_PATH}")
+    if not os.path.exists(BIN) or not os.access(BIN, os.X_OK):
+        raise SystemExit(f"Binary {BIN} not found or not executable")
 
-    # Functional tests (best-effort, since we don't know exact prompts/expected behavior).
-    # We assume typical behavior: asks for password; on correct password returns success; otherwise failure.
-    # If the binary doesn't support checking, these assertions will be relaxed and only ensure it responds.
-    common_inputs = [
-        b"\n",
-        b"wrong\n",
-        b"password\n",
-        b"123456\n"
+    # ---------- Functional tests ----------
+    # We don't know the correct password. We'll test with an empty password and a short random one.
+    # Expected behavior: program should not crash; it should prompt and then reject.
+    functional_inputs = [
+        (b"\n", "empty_password"),
+        (b"wrongpass\n", "wrong_short_password"),
+        (b"123456\n", "wrong_numeric_password"),
     ]
 
-    # Security tests for CWE-14 (Excessive/Improper Validation of Array Index).
-    # CWE-14 commonly manifests as indexing an array using an index derived from user input
-    # without proper bounds checks (e.g., sprintf/format-driven index math, negative indexes,
-    # or excessively large indexes).
-    #
-    # We craft inputs that commonly lead to such behavior in naive parsers:
-    # 1) Very large strings to push internal index computations.
-    # 2) Strings with patterns that may be parsed as numbers/offsets (e.g., "0", "-1", large "999999999").
-    # 3) Input containing non-digit/format-like characters to disturb parsing state.
-    #
-    # Because we don't know the exact program format, we rely on the likelihood that the password
-    # influences memory operations (buffer copy) or parsing of characters into indices.
-    # A "CWE-14 style" trigger often includes negative-like values or extremely large numeric tokens.
-    cwe14_payloads = [
-        b"-1\n",
-        b"0\n",
-        b"1\n",
-        b"2147483647\n",        # INT_MAX
-        b"-2147483648\n",       # INT_MIN
-        b"999999999999999999999\n",  # huge
-        b"%n%n%n%n%n\n",         # format-string-like pattern (if password is used in printf-family)
-        b"%999999999x\n",       # format specifier stress
-        b"A"*4096 + b"\n",      # large to force index/bounds issues
-        b"A"*8192 + b"-1\n",    # mixed length/characters
-        b"../../../../../../../../../../etc/passwd\n",  # path-like payload (if used in array/path resolution)
-    ]
+    for stdin_data, ctx in functional_inputs:
+        res = run_binary(args=[], stdin_data=stdin_data)
+        assert_some_output(res, ctx)
+        assert_not_crashed(res, ctx)
 
-    # If the target expects a specific password, we can't know it.
-    # We'll attempt to detect success/failure by exit code / presence of keywords if any.
-    # We'll keep assertions minimal for functional tests and stronger for safety (no crash).
-    def is_crash(returncode):
-        return returncode is not None and returncode != 0
-
-    # Run basic functional tests: should not hang.
-    for i, inp in enumerate(common_inputs, 1):
-        rc, out, err, status = run_target(stdin_data=inp, timeout=2.0)
-        if status == "timeout":
-            raise AssertionError(f"Functional test {i} timed out (unexpected hang). Input={inp[:50]!r}")
-        # We expect some response; at minimum program should terminate.
-        if rc is None:
-            raise AssertionError(f"Functional test {i} failed with unknown execution state.")
-        # Do not require specific rc; just ensure outputs are not empty for interactive-like prompts.
-        if not out and not err:
-            # some programs might be silent; allow it.
+        # Heuristic functional assertions:
+        # We expect some indication of rejection if password is wrong or empty.
+        # If program uses "password", "incorrect", "invalid", "try again".
+        combined = (res.stdout + "\n" + res.stderr).lower()
+        # If the program happened to accept, that's okay for functional not crashing.
+        # But we can still require that it mentions "password" or "incorrect/invalid" OR simply ends.
+        if any(k in combined for k in ["incorrect", "invalid", "try again", "access denied", "denied", "fail"]):
+            pass
+        # Also check prompt mention
+        if "password" in combined:
             pass
 
-    # Run CWE-14 adversarial inputs.
-    # Goal: expose improper bounds/index validation -> crash, abnormal behavior, or sanitizer output.
-    # We'll flag if process crashes or produces evidence of memory errors.
-    suspicious_markers = [
-        b"segmentation fault",
-        b"segfault",
-        b"stack smashing",
-        b"***",
-        b"corrupted",
-        b"ASan",
-        b"AddressSanitizer",
-        b"heap-buffer-overflow",
-        b"stack-buffer-overflow",
-        b"buffer-overflow",
-        b"free(): invalid",
-        b"munmap_chunk",
-        b"double free",
-        b"invalid pointer",
-    ]
+    # ---------- Security tests for CWE-14-like memory misuse ----------
+    # Create boundary/overflow attempts.
+    # Choose lengths that commonly exceed typical stack buffers (e.g., 32/64/128/256).
+    # Off-by-one: if buffer is N bytes, passing N or N+1 can corrupt.
+    # Also include format-string probing characters.
+    base = b"A"
 
-    for idx, payload in enumerate(cwe14_payloads, 1):
-        rc, out, err, status = run_target(stdin_data=payload, timeout=2.0)
-        if status == "timeout":
-            # A hang can also be considered a bug for security testing, but not necessarily CWE-14.
-            # We'll treat it as a failure indicator.
-            raise AssertionError(f"CWE-14 test {idx} timed out. Payload len={len(payload)}")
-        combined = (out or b"") + b"\n" + (err or b"")
-        if any(m in combined for m in suspicious_markers):
-            raise AssertionError(
-                f"CWE-14 likely triggered (memory error marker). Test {idx}. Payload={payload[:60]!r} rc={rc}\n"
-                f"stdout={out[:500]!r}\nstderr={err[:500]!r}"
-            )
-        # If the program terminates with a non-zero exit code, consider it a potential vulnerability exposure.
-        # Many programs use non-zero for auth failure; so we only treat specific crash signatures.
-        if rc is not None and rc < 0:
-            # Negative returncode indicates signal (crash).
-            raise AssertionError(
-                f"CWE-14 likely triggered (signal crash). Test {idx}. Payload={payload[:60]!r} rc={rc}"
-            )
+    candidates = []
+    # Very long input (overflow attempt)
+    candidates.append((base * 2048 + b"\n", "long_2048_As"))
+    candidates.append((base * 4096 + b"\n", "long_4096_As"))
+    # Off-by-one style around common sizes
+    for n in [32, 63, 64, 65, 127, 128, 129, 255, 256, 257]:
+        candidates.append((b"B" * n + b"\n", f"boundary_{n}"))
+    # Mixed with format string characters (in case of unsafe printf(userbuf))
+    fmt_payload = b"%" * 200 + b"\n"
+    candidates.append((fmt_payload, "format_string_many_percent"))
+    # Classic format string patterns
+    candidates.append((b"%p-%p-%p-%p-%p-%p-%p-%p-%n\n", "format_string_percent_p_and_n"))
+    # Include whitespace/newlines to see if reading stops early (still tests robustness)
+    candidates.append((b"pass\nmore_data_after_newline\n", "newline_in_input"))
 
-    # If the program didn't crash, still validate it responds to at least one input deterministically.
-    # We'll run two similar payloads and ensure outputs are stable (heuristic).
-    p1 = b"0\n"
-    p2 = b"1\n"
-    rc1, out1, err1, st1 = run_target(stdin_data=p1, timeout=2.0)
-    rc2, out2, err2, st2 = run_target(stdin_data=p2, timeout=2.0)
-    if st1 != "completed" or st2 != "completed":
-        raise AssertionError("Stability check failed due to timeout/non-completion.")
-    # Not asserting content; just ensure it didn't crash.
-    if rc1 is not None and rc1 < 0:
-        raise AssertionError(f"Crash on p1={p1!r}")
-    if rc2 is not None and rc2 < 0:
-        raise AssertionError(f"Crash on p2={p2!r}")
+    # Run security candidates; assert not crashing / not timing out.
+    # If it crashes, we treat as failing due to likely memory corruption (consistent with CWE-14 class).
+    failures = []
+    for stdin_data, ctx in candidates:
+        res = run_binary(args=[], stdin_data=stdin_data, timeout=TIMEOUT_SECONDS)
+        try:
+            assert_some_output(res, ctx)
+            # Do NOT assert on exact messages; only ensure stability.
+            assert_not_crashed(res, ctx)
+        except AssertionError as e:
+            failures.append((ctx, res, str(e)))
+        finally:
+            # Small delay to avoid overwhelming
+            time.sleep(0.05)
+
+    if failures:
+        # Print concise diagnostic and fail.
+        msg_lines = ["Security test failures detected (possible CWE-14-like memory issue):"]
+        for ctx, res, err in failures[:5]:
+            msg_lines.append(f"- {ctx}: {err}")
+            msg_lines.append(f"  returncode={res.returncode} timed_out={res.timed_out} signal={res.signal_name}")
+            if res.stderr.strip():
+                msg_lines.append(f"  stderr={res.stderr.strip()[:500]!r}")
+            if res.stdout.strip():
+                msg_lines.append(f"  stdout={res.stdout.strip()[:500]!r}")
+        # Exit non-zero
+        raise SystemExit("\n".join(msg_lines))
+
+    # ---------- Optional: ensure it returns to prompt / handles multiple runs ----------
+    # Not all binaries support looping within one run; so we just run once more quickly.
+    final_res = run_binary(args=[], stdin_data=b"wrong\n", timeout=TIMEOUT_SECONDS)
+    assert_not_crashed(final_res, "final_smoke")
 
 if __name__ == "__main__":
     main()

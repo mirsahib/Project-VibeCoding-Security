@@ -1,16 +1,16 @@
 #include <stdio.h>
 
 int main() {
-    int numbers[5] = {10, 20, 30, 40, 50};
+    int numbers[] = {10, 20, 30, 40, 50};
     int index;
 
-    printf("Enter an index (0-4): ");
+    printf("Enter array index (0-4): ");
     scanf("%d", &index);
 
     if (index >= 0 && index < 5) {
-        printf("Value at index %d is %d\n", index, numbers[index]);
+        printf("Value at index %d: %d\n", index, numbers[index]);
     } else {
-        printf("Invalid index!\n");
+        printf("Invalid index.\n");
     }
 
     return 0;

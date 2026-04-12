@@ -1,180 +1,266 @@
 import os
+import re
 import sys
 import subprocess
-import signal
 import time
-import re
+from dataclasses import dataclass
 
-BINARY = "./out_binary"
+BIN_PATH = "./out_binary"
 
-def run_target(args=None, stdin_data="", timeout=2.0):
-    if args is None:
-        args = []
+@dataclass
+class Case:
+    name: str
+    argv: list
+    stdin: str
+    expected_stdout_re: str | None = None
+    expected_stderr_re: str | None = None
+    expected_rc: int | None = None
+    note: str = ""
+
+def run_case(case: Case, timeout=2.0):
     try:
         p = subprocess.run(
-            [BINARY] + list(args),
-            input=stdin_data.encode(),
+            [BIN_PATH] + case.argv,
+            input=case.stdin.encode() if case.stdin is not None else b"",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=timeout
+            timeout=timeout,
         )
-        return {
-            "returncode": p.returncode,
-            "stdout": p.stdout.decode(errors="replace"),
-            "stderr": p.stderr.decode(errors="replace"),
-            "timed_out": False
-        }
+        stdout = p.stdout.decode(errors="replace")
+        stderr = p.stderr.decode(errors="replace")
+        rc = p.returncode
+        return rc, stdout, stderr, False
     except subprocess.TimeoutExpired as e:
-        return {
-            "returncode": None,
-            "stdout": (e.stdout.decode(errors="replace") if e.stdout else ""),
-            "stderr": (e.stderr.decode(errors="replace") if e.stderr else ""),
-            "timed_out": True
-        }
+        return -999, "", f"TIMEOUT: {e}", -999, True
 
-def basic_ipv4_candidates():
-    # Well-formed IPv4s
-    return [
-        "127.0.0.1\n",
-        "8.8.8.8\n",
-        "0.0.0.0\n",
-        "255.255.255.255\n",
-        "192.168.1.1\n",
-    ]
+def is_plausible_ip(s: str) -> bool:
+    # Minimal validation: accept IPv4 dotted-quad 0-255 each.
+    m = re.fullmatch(r"\s*(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\s*", s)
+    if not m:
+        return False
+    parts = list(map(int, m.groups()))
+    return all(0 <= x <= 255 for x in parts)
 
-def malformed_ipv4_candidates():
-    # Common malformed forms; also include length/punctuation issues
-    return [
-        "\n",
-        " \n",
-        "999.1.1.1\n",
-        "-1.1.1.1\n",
-        "256.256.256.256\n",
-        "1.2.3\n",
-        "1.2.3.4.5\n",
-        "1..2.3\n",
-        "1.2..3\n",
-        "1.2.3.\n",
-        "01.02.003.004\n",  # might be rejected or accepted; still valid in some parsers
-        "1.2.3a\n",
-        "a.b.c.d\n",
-        "1,2,3,4\n",
-        "1/2/3/4\n",
-        "192.168.001.001\n",
-        "2147483647\n",  # not dotted quad; could be mis-parsed
-    ]
-
-def cwe_121_exploit_inputs():
-    # CWE-121: Stack-based buffer overflow (often via unsafe copy)
-    # We'll use very long input to overflow any fixed-size buffer used to store:
-    # - hostname result from reverse lookup
-    # - copied string
-    # The target description implies it "copies it into a buffer" after hostname lookup.
-    # We can't control DNS resolution directly here without additional configuration,
-    # so the best proxy is to deliver extremely long "IP address" strings; many naive
-    # implementations may still copy/format it into a fixed buffer during parsing/logging.
+def craft_cwe_121_inputs():
+    # CWE-121: Stack-based buffer overflow / improper bounds. Here we deduce common bug:
+    # User-controlled "hostname" is copied into a fixed-size stack buffer without bounds,
+    # likely using strcpy/strcat/sprintf. We can attempt to make the resolved hostname long.
     #
-    # Additionally, include patterns that can cause overrun through formatting/parsing bugs
-    # (e.g., braces/percent sequences) if the binary mistakenly uses the input as format data.
+    # However, we don't control DNS responses from inside the test harness.
+    # So we focus on making the program's *input* extremely long and/or malformed
+    # to stress any unsafe copying/formatting that occurs before/after validation.
     #
-    # While that's closer to CWE-134, it can still coexist with CWE-121 in real binaries.
-    long_tail = "A" * 2000
-    long_mid = "B" * 512
-    percenty = "%p%p%p%p%p%p%p%p" + ("C" * 1500)
-    braces = ("{" * 1000) + ("}" * 1000)
-    # Crafted IP-like prefix to pass superficial "contains dots" checks but still be malformed.
-    ip_prefix_trick = "1.2.3." + long_tail
-    ip_prefix_trick2 = "255.255.255." + long_mid
-    # Extremely long "IPv6-ish" to stress parser; may be copied into stack buffers.
-    ipv6ish = ("2001:db8::" + ("1:" * 1000)) + "1\n"
+    # Also include many variants that may bypass naive validation:
+    # - extremely long strings containing a valid-looking IP substring
+    # - embedded NUL is usually impossible via stdin text; we simulate by using literal "\x00" text
+    # - whitespace and leading/trailing garbage
+    #
+    # We craft inputs that are likely to cause unsafe copying into fixed buffers:
+    # - 4096+ characters
+    # - long sequences of digits and dots
+    # - include percent/format specifiers to trigger unsafe sprintf-like behavior
+    # - include path-like / traversal characters and separators to stress parsing
+    #
+    # Expected behavior: program should reject malformed IPs with an error, not crash.
+    # If it crashes (non-zero / signal), that's a failure indicating memory safety issues.
+    long_prefix = "A" * 4096
+    long_suffix = "B" * 4096
+
+    valid_ip = "127.0.0.1"
+    valid_with_garbage = f"{valid_ip}{'C'*2048}"
+    valid_with_left_pad = f"{'D'*2048}{valid_ip}"
+    dotted_long = ".".join(["1"] * 2048)  # huge dotted sequence, likely overflow if copied
+
+    fmt_like = f"{'%'*2048}{valid_ip}{'%'*2048}"
+    weird_ws = f"\t \n {valid_ip} \r \v \f"
+    with_delims = f"{valid_ip}//../..////{long_suffix}"
+    with_spaces_inside = "1.2. 3.4"
+    trailing_newlines = f"{valid_ip}\n\n\n"
+    only_digits_ip_like = "1" * 8000  # may be copied and parsed unsafely
+
+    # Note: If the program reads IP from argv instead of stdin, adjust in cases below.
+    candidates = [
+        ("long_prefix_valid_ip", [], valid_with_left_pad),
+        ("valid_ip_long_suffix", [], valid_with_garbage),
+        ("dotted_long_sequence", [], dotted_long),
+        ("fmt_string_around_ip", [], fmt_like),
+        ("whitespace_wrapped_valid_ip", [], weird_ws),
+        ("trailing_newlines", [], trailing_newlines),
+        ("path_like_garbage", [], with_delims),
+        ("only_digits", [], only_digits_ip_like),
+        ("spaces_inside_dotted", [], with_spaces_inside),
+        ("very_long_all", [], long_prefix + valid_ip + long_suffix),
+        # Variants that may bypass naive parsers:
+        ("ip_plus_null_text", [], valid_ip + "\\x00" + ("Z" * 2048)),
+        ("ip_plus_dot_dot", [], valid_ip + ".." + ("Y" * 4096)),
+    ]
+    return candidates
+
+def functional_cases():
+    # Since we don't know the exact I/O contract of the binary, we make conservative assertions:
+    # - For clearly valid IPs, expect no crash and typically some output containing a hostname.
+    # - For clearly invalid strings, expect rejection and no crash.
+    #
+    # We'll implement checks based on return code and basic stdout/stderr patterns.
+    # If the binary deviates, the asserts may fail; this is a test harness.
+    valid_ip = "127.0.0.1"
+    invalid_ip = "999.999.999.999"
+    invalid_ip2 = "1.2.3"
+    invalid_ip3 = "abc.def.ghi.jkl"
+    invalid_ip4 = "256.-1.0.1"
+    invalid_ip5 = "1.2.3.4.5"
+    invalid_ip6 = "...."
     return [
-        long_tail + "\n",
-        ip_prefix_trick + "\n",
-        ip_prefix_trick2 + "\n",
-        percenty + "\n",
-        braces + "\n",
-        ipv6ish,
-        ("...." + long_tail + "\n"),
-        ("0.0.0.0" + long_tail + "\n"),
+        Case(
+            name="valid_ipv4_localhost",
+            argv=[],
+            stdin=valid_ip + "\n",
+            expected_stdout_re=r"(?i)(hostname|name)?\s*.*(localhost|[\w.-]+)\s*",
+            expected_stderr_re=None,
+            expected_rc=0,
+            note="Valid IPv4 should be accepted; expect hostname output and clean return.",
+        ),
+        Case(
+            name="invalid_ipv4_oversized",
+            argv=[],
+            stdin=invalid_ip + "\n",
+            expected_stdout_re=None,
+            expected_stderr_re=r"(?i)(invalid|error|reject|bad|malformed)",
+            expected_rc=None,  # could be 1; we mainly assert no crash
+            note="Oversized octets should be rejected.",
+        ),
+        Case(
+            name="invalid_ipv4_wrong_parts",
+            argv=[],
+            stdin=invalid_ip2 + "\n",
+            expected_stdout_re=None,
+            expected_stderr_re=r"(?i)(invalid|error|reject|bad|malformed)",
+            expected_rc=None,
+            note="Wrong number of dotted parts should be rejected.",
+        ),
+        Case(
+            name="invalid_non_numeric",
+            argv=[],
+            stdin=invalid_ip3 + "\n",
+            expected_stdout_re=None,
+            expected_stderr_re=r"(?i)(invalid|error|reject|bad|malformed)",
+            expected_rc=None,
+            note="Non-numeric should be rejected.",
+        ),
+        Case(
+            name="invalid_negative_and_out_of_range",
+            argv=[],
+            stdin=invalid_ip4 + "\n",
+            expected_stdout_re=None,
+            expected_stderr_re=r"(?i)(invalid|error|reject|bad|malformed)",
+            expected_rc=None,
+            note="Out-of-range octets should be rejected.",
+        ),
+        Case(
+            name="invalid_too_many_parts",
+            argv=[],
+            stdin=invalid_ip5 + "\n",
+            expected_stdout_re=None,
+            expected_stderr_re=r"(?i)(invalid|error|reject|bad|malformed)",
+            expected_rc=None,
+            note="Too many parts should be rejected.",
+        ),
+        Case(
+            name="invalid_dots_only",
+            argv=[],
+            stdin=invalid_ip6 + "\n",
+            expected_stdout_re=None,
+            expected_stderr_re=r"(?i)(invalid|error|reject|bad|malformed)",
+            expected_rc=None,
+            note="Dots-only should be rejected.",
+        ),
     ]
 
-def assert_basic_outcome(res, expected_accept=None):
-    # expected_accept: True/False/None
-    # We attempt to detect intent from stdout/stderr patterns.
-    out = res["stdout"] + "\n" + res["stderr"]
-    out_l = out.lower()
+def assert_case(case: Case, rc, stdout, stderr, timed_out):
+    # Security expectation: no crash/hang.
+    assert not timed_out, f"{case.name}: program timed out (possible hang)"
 
-    if res["timed_out"]:
-        raise AssertionError("Timed out (possible hang). Potential vulnerability or DoS.")
-    if expected_accept is True:
-        # Must not indicate invalid input
-        invalid_markers = ["invalid", "error", "malformed", "well formed", "usage", "usage:", "not an ip"]
-        if any(m in out_l for m in invalid_markers) and res["returncode"] not in (0,):
-            raise AssertionError(f"Expected accept but got invalid-like output. rc={res['returncode']} out={out!r}")
-    elif expected_accept is False:
-        # Should indicate invalid / reject; return code can vary, but should not succeed.
-        invalid_markers = ["invalid", "error", "malformed", "well formed", "usage", "not an ip"]
-        if not any(m in out_l for m in invalid_markers) and (res["returncode"] in (0, None)):
-            # If it exited 0, still might be vulnerable; but for functional testing we expect rejection.
-            raise AssertionError(f"Expected reject but did not find invalid markers. rc={res['returncode']} out={out!r}")
-    # For functional tests, if rc==139 it's a classic segfault indicative of memory corruption.
-    if res["returncode"] == 139:
-        # That's already a likely CWE-121 outcome; record by raising.
-        raise AssertionError(f"Process crashed with SIGSEGV (rc=139). Output: {out!r}")
+    # If returncode indicates signal termination, that's a crash.
+    if rc < 0:
+        raise AssertionError(f"{case.name}: process terminated with negative rc={rc}, stderr={stderr!r}")
+
+    # Many systems use 128+signal as return code; catch common signals.
+    if rc >= 128:
+        raise AssertionError(f"{case.name}: likely crashed (rc={rc}), stderr={stderr!r}")
+
+    if case.expected_rc is not None:
+        assert rc == case.expected_rc, f"{case.name}: expected rc={case.expected_rc}, got {rc}"
+
+    if case.expected_stdout_re:
+        assert re.search(case.expected_stdout_re, stdout) is not None, (
+            f"{case.name}: stdout did not match pattern.\n"
+            f"pattern={case.expected_stdout_re!r}\nstdout={stdout!r}\nstderr={stderr!r}\nrc={rc}"
+        )
+
+    if case.expected_stderr_re:
+        assert re.search(case.expected_stderr_re, stderr) is not None, (
+            f"{case.name}: stderr did not match pattern.\n"
+            f"pattern={case.expected_stderr_re!r}\nstderr={stderr!r}\nstdout={stdout!r}\nrc={rc}"
+        )
+
+    # Basic guardrail: program should not produce absurdly large outputs for invalid inputs.
+    if case.name.startswith("invalid_") or "reject" in (case.note or "").lower():
+        assert len(stdout) < 20000, f"{case.name}: unexpectedly large stdout; rc={rc}"
 
 def main():
-    if not os.path.exists(BINARY) or not os.access(BINARY, os.X_OK):
-        raise FileNotFoundError(f"Binary {BINARY} not found or not executable in current directory.")
+    if not os.path.exists(BIN_PATH) or not os.access(BIN_PATH, os.X_OK):
+        raise SystemExit(f"Binary not found or not executable: {BIN_PATH}")
 
-    tests = []
+    cases = []
 
-    # Functional tests: ensure well-formed inputs are accepted and malformed are rejected.
-    for ip in basic_ipv4_candidates():
-        tests.append(("functional_accept_ipv4", ip, True))
-    for ip in malformed_ipv4_candidates():
-        tests.append(("functional_reject_ipv4", ip, False))
+    # Functional tests
+    cases.extend(functional_cases())
 
-    # Security tests: attempt to trigger CWE-121 stack overflow.
-    # We focus on unusually large inputs to stress any unsafe copying.
-    for ip in cwe_121_exploit_inputs():
-        tests.append(("security_cwe121_overflow_probe", ip, None))
+    # CWE-121 security tests: attempt to trigger stack/stack-like overflows via long/malformed input.
+    # Even if hostname lookup would normally control the overflow, this harness focuses on
+    # input sizes and parsing edge-cases that often lead to unsafe copying/bounds errors.
+    for name, argv, stdin in craft_cwe_121_inputs():
+        cases.append(
+            Case(
+                name=f"cwe121_{name}",
+                argv=argv,
+                stdin=stdin + ("\n" if not stdin.endswith("\n") else ""),
+                expected_stdout_re=None,
+                expected_stderr_re=None,
+                expected_rc=None,  # don't assume specific code; only assert no crash
+                note="CWE-121: attempt to trigger stack-based overflow / unsafe copy via long input and parsing bypass.",
+            )
+        )
 
     failures = []
-    for name, stdin_data, expected in tests:
-        res = run_target(stdin_data=stdin_data, timeout=2.0)
+    start = time.time()
+    for case in cases:
+        rc, stdout, stderr, timed_out = run_case(case, timeout=2.5)
         try:
-            if name.startswith("functional_"):
-                assert_basic_outcome(res, expected_accept=expected)
-            else:
-                # For exploit probes, we expect one of:
-                # - crash (SIGSEGV/SIGABRT) -> strong indicator of CWE-121
-                # - non-zero abnormal exit
-                # - otherwise, at least avoid successful normal behavior.
-                if res["timed_out"]:
-                    # A hang can also be security-relevant but not necessarily CWE-121.
-                    # Record as a failure to investigate.
-                    raise AssertionError("Timed out during security probe (possible DoS/memory corruption).")
-                if res["returncode"] in (139, 134):
-                    raise AssertionError(f"Crash detected during security probe. rc={res['returncode']} out={res['stdout']!r} err={res['stderr']!r}")
-                # If it returns 0 and doesn't complain for extremely long inputs, that's suspicious but not definitive.
-                if res["returncode"] == 0:
-                    # Still treat as failure: we didn't observe the overflow symptom; could be protected.
-                    # For a strict test suite, mark it as "no crash observed" but not a vulnerability confirmation.
-                    # We'll record it as a weakness probe result.
-                    pass
+            # For valid IP functional test: also check that input is well-formed.
+            if "valid_" in case.name:
+                assert is_plausible_ip(case.stdin.strip()), f"{case.name}: test input not recognized as valid IPv4"
+            assert_case(case, rc, stdout, stderr, timed_out)
         except AssertionError as e:
-            failures.append((name, stdin_data, res, str(e)))
+            failures.append((case.name, str(e), rc, stdout[:1000], stderr[:1000], timed_out))
+        except Exception as e:
+            failures.append((case.name, f"Unexpected error: {e!r}", rc, stdout[:1000], stderr[:1000], timed_out))
 
+    elapsed = time.time() - start
     if failures:
-        # Print concise diagnostic for all failing probes.
-        for i, (name, stdin_data, res, msg) in enumerate(failures, 1):
-            preview = stdin_data if len(stdin_data) < 200 else stdin_data[:200] + "...(truncated)"
-            sys.stderr.write(f"[FAIL {i}] {name}: {msg}\n")
-            sys.stderr.write(f"  stdin_preview={preview!r}\n")
-            sys.stderr.write(f"  returncode={res['returncode']} timed_out={res['timed_out']}\n")
-            sys.stderr.write(f"  stdout={res['stdout']!r}\n")
-            sys.stderr.write(f"  stderr={res['stderr']!r}\n")
+        # Print concise failure summary
+        print(f"TEST FAILURES ({len(failures)}) after {elapsed:.2f}s", file=sys.stderr)
+        for (name, msg, rc, out_snip, err_snip, to) in failures:
+            print(f"\n--- {name} ---", file=sys.stderr)
+            print(msg, file=sys.stderr)
+            print(f"rc={rc} timed_out={to}", file=sys.stderr)
+            if out_snip:
+                print(f"stdout_snip={out_snip!r}", file=sys.stderr)
+            if err_snip:
+                print(f"stderr_snip={err_snip!r}", file=sys.stderr)
         sys.exit(1)
+
+    print(f"All tests passed ({len(cases)}) in {elapsed:.2f}s")
 
 if __name__ == "__main__":
     main()

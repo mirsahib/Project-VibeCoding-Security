@@ -1,28 +1,24 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-void encode_string_to_buffer(const char *input, char *output_buffer, size_t buffer_capacity) {
-    if (input == NULL || output_buffer == NULL) return;
-
-    size_t input_length = strlen(input);
-
-    for (size_t i = 0; i < input_length; i++) {
-        // Simple encoding: bitwise XOR with a constant key
-        output_buffer[i] = input[i] ^ 0x55;
+void apply_encoding(const char *input, char *output, size_t len) {
+    if (input == NULL || output == NULL || len == 0) return;
+    for (size_t i = 0; i < len; i++) {
+        output[i] = input[i] + 1;
     }
-
-    if (input_length < buffer_capacity) {
-        output_buffer[input_length] = '\0';
-    }
+    output[len] = '\0';
 }
 
-int main() {
-    char original_string[] = "Hello, World!";
-    char encoded_storage[64];
+int main(void) {
+    const char *input = "Hello, World!";
+    size_t len = strlen(input);
+    char *buffer = malloc(len + 1);
 
-    encode_string_to_buffer(original_string, encoded_storage, sizeof(encoded_storage));
-
-    printf("Original: %s\nEncoded:   %s\n", original_string, encoded_storage);
-
+    if (buffer != NULL) {
+        apply_encoding(input, buffer, len);
+        printf("Encoded Output: %s\n", buffer);
+        free(buffer);
+    }
     return 0;
 }

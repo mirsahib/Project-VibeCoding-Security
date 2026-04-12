@@ -1,16 +1,16 @@
 #include <stdio.h>
 
 int main() {
-    int arr[5] = {10, 20, 30, 40, 50};
+    int numbers[5] = {10, 20, 30, 40, 50};
     int index;
 
-    printf("Enter an index (0-4): ");
+    printf("Enter the index of the element you want to access (0-4): ");
     scanf("%d", &index);
 
     if (index >= 0 && index < 5) {
-        printf("Value at index %d is: %d\n", index, arr[index]);
+        printf("Element at index %d is: %d\n", index, numbers[index]);
     } else {
-        printf("Invalid index!\n");
+        printf("Invalid index. Please enter a number between 0 and 4.\n");
     }
 
     return 0;

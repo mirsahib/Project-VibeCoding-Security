@@ -11,10 +11,12 @@ void copy_string(char *src, char *dest) {
 }
 
 int main() {
-    char src[100] = "Hello, World!";
-    char dest[100];
+    char src[] = "Hello, World!";
+    char dest[20];
 
     copy_string(src, dest);
+
+    printf("Original string: %s\n", src);
     printf("Copied string: %s\n", dest);
 
     return 0;

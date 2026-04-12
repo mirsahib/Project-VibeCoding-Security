@@ -2,21 +2,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BUFFER_SIZE 1024
+#define MAX_SIZE 256
 
 void process_input(char *buffer) {
     printf("You entered: %s\n", buffer);
 }
 
 int main() {
-    char buffer[BUFFER_SIZE];
+    char input_buffer[MAX_SIZE];
 
-    printf("Enter a line of text: ");
-    fgets(buffer, BUFFER_SIZE, stdin);
+    printf("Enter a string: ");
+    fgets(input_buffer, MAX_SIZE, stdin);
 
-    buffer[strcspn(buffer, "\n")] = 0; // Remove trailing newline character
+    input_buffer[strcspn(input_buffer, "\n")] = 0;
 
-    process_input(buffer);
+    process_input(input_buffer);
 
     return 0;
 }

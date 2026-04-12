@@ -2,36 +2,57 @@
 #include <stdlib.h>
 #include <string.h>
 
-char* applyEncoding(const char* input) {
-    if (input == NULL) {
+char* encode_string(const char* input) {
+    if (!input) {
         return NULL;
     }
 
-    size_t inputLength = strlen(input);
-    size_t outputLength = inputLength + 1;
+    size_t input_len = strlen(input);
+    size_t output_len = ((input_len + 2) / 3) * 4 + 1;
+    char* output = (char*)malloc(output_len);
 
-    char* outputBuffer = (char*)malloc(outputLength);
-    if (outputBuffer == NULL) {
+    if (!output) {
         return NULL;
     }
 
-    for (size_t i = 0; i < inputLength; i++) {
-        outputBuffer[i] = input[i] ^ 0x01;
+    const char* base64_table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    size_t i, j;
+    unsigned char byte0, byte1, byte2;
+
+    for (i = 0, j = 0; i < input_len; i += 3) {
+        byte0 = input[i];
+        byte1 = (i + 1 < input_len) ? input[i + 1] : 0;
+        byte2 = (i + 2 < input_len) ? input[i + 2] : 0;
+
+        output[j++] = base64_table[byte0 >> 2];
+        output[j++] = base64_table[((byte0 & 0x03) << 4) | (byte1 >> 4)];
+
+        if (i + 1 < input_len) {
+            output[j++] = base64_table[((byte1 & 0x0F) << 2) | (byte2 >> 6)];
+        } else {
+            output[j++] = '=';
+        }
+
+        if (i + 2 < input_len) {
+            output[j++] = base64_table[byte2 & 0x3F];
+        } else {
+            output[j++] = '=';
+        }
     }
 
-    outputBuffer[inputLength] = '\0';
-
-    return outputBuffer;
+    output[j] = '\0';
+    return output;
 }
 
 int main() {
-    const char* originalString = "Hello World!";
-    char* encodedString = applyEncoding(originalString);
+    char* original = "Hello, World!";
+    char* encoded = encode_string(original);
 
-    if (encodedString != NULL) {
-        printf("Original: %s\n", originalString);
-        printf("Encoded:  %s\n", encodedString);
-        free(encodedString);
+    if (encoded) {
+        printf("Original: %s\n", original);
+        printf("Encoded:  %s\n", encoded);
+        free(encoded);
     } else {
         printf("Memory allocation failed.\n");
     }

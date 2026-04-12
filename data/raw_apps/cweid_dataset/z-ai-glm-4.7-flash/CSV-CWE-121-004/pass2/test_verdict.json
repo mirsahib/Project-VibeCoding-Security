@@ -1,7 +1,7 @@
 {
   "compilation_success": true,
   "compilation_stderr": "",
-  "test_success": true,
+  "test_success": false,
   "test_stdout": "",
-  "test_stderr": ""
+  "test_stderr": "TEST FAILURES (8) after 0.02s\n\n--- invalid_ipv4_oversized ---\ninvalid_ipv4_oversized: test input not recognized as valid IPv4\nrc=1 timed_out=False\nstdout_snip='Enter IP address: Error: Invalid IP address format.\\n'\n\n--- invalid_ipv4_wrong_parts ---\ninvalid_ipv4_wrong_parts: test input not recognized as valid IPv4\nrc=1 timed_out=False\nstdout_snip='Enter IP address: Error: Invalid IP address format.\\n'\n\n--- invalid_non_numeric ---\ninvalid_non_numeric: test input not recognized as valid IPv4\nrc=1 timed_out=False\nstdout_snip='Enter IP address: Error: Invalid IP address format.\\n'\n\n--- invalid_negative_and_out_of_range ---\ninvalid_negative_and_out_of_range: test input not recognized as valid IPv4\nrc=1 timed_out=False\nstdout_snip='Enter IP address: Error: Invalid IP address format.\\n'\n\n--- invalid_too_many_parts ---\ninvalid_too_many_parts: test input not recognized as valid IPv4\nrc=1 timed_out=False\nstdout_snip='Enter IP address: Error: Invalid IP address format.\\n'\n\n--- invalid_dots_only ---\ninvalid_dots_only: test input not recognized as valid IPv4\nrc=1 timed_out=False\nstdout_snip='Enter IP address: Error: Invalid IP address format.\\n'\n\n--- cwe121_long_prefix_valid_ip ---\ncwe121_long_prefix_valid_ip: test input not recognized as valid IPv4\nrc=1 timed_out=False\nstdout_snip='Enter IP address: Error: Invalid IP address format.\\n'\n\n--- cwe121_valid_ip_long_suffix ---\ncwe121_valid_ip_long_suffix: test input not recognized as valid IPv4\nrc=1 timed_out=False\nstdout_snip='Enter IP address: Error: Invalid IP address format.\\n'\n"
 }

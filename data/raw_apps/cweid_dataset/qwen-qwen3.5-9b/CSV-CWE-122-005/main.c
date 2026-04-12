@@ -2,29 +2,35 @@
 #include <stdlib.h>
 #include <string.h>
 
-char* hex_encode(const char* src) {
-    int len = strlen(src);
-    char* dst = (char*)malloc(len * 2 + 1);
-    if (!dst) return NULL;
-    for (int i = 0; i < len; i++) {
-        unsigned char byte = (unsigned char)src[i];
-        int high = byte >> 4;
-        int low = byte & 0x0F;
-        if (high < 10) dst[i * 2 + 0] = high + '0';
-        else           dst[i * 2 + 0] = (high - 10) + 'a';
-        if (low < 10)  dst[i * 2 + 1] = low + '0';
-        else           dst[i * 2 + 1] = (low - 10) + 'a';
-    }
-    dst[len * 2] = 0;
-    return dst;
-}
+int main() {
+    char in_buf[1024];
+    char *out_buf;
+    size_t i;
+    size_t len;
+    unsigned char val;
+    int digit;
 
-int main(void) {
-    const char* input = "Hello World";
-    char* encoded = hex_encode(input);
-    if (encoded != NULL) {
-        printf("%s\n", encoded);
-        free(encoded);
+    fgets(in_buf, 1024, stdin);
+    len = strlen(in_buf);
+    if(len > 0 && in_buf[len - 1] == '\n') {
+        len--;
     }
+
+    out_buf = (char*)malloc(len * 2 + 1);
+    if(out_buf == NULL) {
+        return 1;
+    }
+
+    for(i = 0; i < len; i++) {
+        val = (unsigned char)in_buf[i];
+        digit = (val >> 4) & 0x0F;
+        out_buf[i * 2] = (digit >= 10) ? ('A' - 10 + digit) : (digit + '0');
+        digit = (val & 0x0F);
+        out_buf[i * 2 + 1] = (digit >= 10) ? ('A' - 10 + digit) : (digit + '0');
+    }
+    out_buf[len * 2] = '\0';
+
+    printf("Encoded: %s\n", out_buf);
+    free(out_buf);
     return 0;
 }

@@ -1,38 +1,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <arpa/inet.h>
-#include <netdb.h>
 #include <sys/socket.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 int main() {
-    char ip_str[1024];
-    char hostname[256];
-    struct sockaddr_in addr;
-    struct in_addr ip_addr;
+    char input[256];
+    char buffer[256];
+    struct in_addr addr;
+    struct hostent *host;
+    int i;
 
-    if (fgets(ip_str, sizeof(ip_str), stdin) == NULL) {
+    printf("Enter IP address: ");
+    if (fgets(input, sizeof(input), stdin) == NULL) {
         return 1;
     }
 
-    if (strlen(ip_str) > 0 && ip_str[strlen(ip_str) - 1] == '\n') {
-        ip_str[strlen(ip_str) - 1] = '\0';
+    if (!inet_aton(input, &addr)) {
+        fprintf(stderr, "Invalid IP address\n");
+        return 1;
     }
 
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-
-    if (inet_pton(AF_INET, ip_str, &ip_addr) == 1) {
-        addr.sin_addr = ip_addr;
-
-        if (getnameinfo((struct sockaddr *)&addr, sizeof(addr), hostname, sizeof(hostname), NULL, 0, NI_NOFQDN) == 0) {
-            printf("%s\n", hostname);
-        } else {
-            printf("Hostname lookup failed\n");
-        }
-    } else {
-        printf("Invalid IP address\n");
+    host = gethostbyaddr(&addr.s_addr, sizeof(struct in_addr), AF_INET);
+    if (host == NULL) {
+        fprintf(stderr, "No hostname found\n");
+        return 1;
     }
 
+    strcpy(buffer, host->h_name);
+    printf("Hostname: %s\n", buffer);
     return 0;
 }
